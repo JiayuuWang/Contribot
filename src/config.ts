@@ -62,7 +62,7 @@ export function loadConfig(): ContribotConfig {
     );
   }
 
-  const raw = readFileSync(configPath, "utf-8");
+  const raw = readFileSync(configPath, "utf-8").replace(/\r\n/g, "\n");
   const parsed = TOML.parse(raw);
   return ConfigSchema.parse(parsed);
 }
@@ -167,7 +167,7 @@ export async function syncReposToDb(config: ContribotConfig, dbPath: string) {
 
 export function addRepoToConfig(repo: RepoConfig) {
   const configPath = findConfigPath();
-  const raw = readFileSync(configPath, "utf-8");
+  const raw = readFileSync(configPath, "utf-8").replace(/\r\n/g, "\n");
   const parsed = TOML.parse(raw) as any;
 
   if (!parsed.repos) parsed.repos = [];
@@ -190,7 +190,7 @@ export function addRepoToConfig(repo: RepoConfig) {
 
 export function removeRepoFromConfig(repoName: string) {
   const configPath = findConfigPath();
-  const raw = readFileSync(configPath, "utf-8");
+  const raw = readFileSync(configPath, "utf-8").replace(/\r\n/g, "\n");
   const parsed = TOML.parse(raw) as any;
 
   if (!parsed.repos) parsed.repos = [];
