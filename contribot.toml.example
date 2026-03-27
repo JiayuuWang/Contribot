@@ -1,0 +1,25 @@
+# Contribot Configuration
+# Copy this file to contribot.toml and edit as needed.
+
+[general]
+workspaces_dir = "./data/workspaces"
+db_path = "./data/contribot.db"
+log_dir = "./data/logs"
+scan_interval_minutes = 60
+max_concurrent_repos = 3
+claude_model = "sonnet"
+max_budget_per_task_usd = 0.50
+dashboard_port = 3847
+
+[github]
+# Auto-detected from `gh auth status` if empty
+username = ""
+
+# Target repositories
+# [[repos]]
+# name = "owner/repo"
+# focus = ["bug-fixes", "documentation", "tests", "refactoring"]
+# reasons = "Why you want to contribute"
+# issue_labels = ["good first issue", "help wanted"]
+# max_prs_per_day = 2
+# enabled = true
