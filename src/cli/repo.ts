@@ -15,9 +15,9 @@ export function registerRepoCommands(program: Command) {
   repo
     .command("add <name>")
     .description("Add a target repository (owner/repo)")
-    .option("-f, --focus <items>", "Focus areas (comma-separated)", "bug-fixes")
+    .option("-f, --focus <items>", "Focus areas (comma-separated, empty = all)")
     .option("-r, --reasons <text>", "Why you want to contribute", "")
-    .option("-l, --labels <items>", "Issue labels (comma-separated)", "good first issue")
+    .option("-l, --labels <items>", "Issue labels (comma-separated, empty = all)")
     .option("--max-prs <n>", "Max PRs per day", "2")
     .action(async (name: string, opts) => {
       if (!/^[^/]+\/[^/]+$/.test(name)) {
@@ -26,8 +26,8 @@ export function registerRepoCommands(program: Command) {
         return;
       }
 
-      const focus = opts.focus.split(",").map((s: string) => s.trim());
-      const labels = opts.labels.split(",").map((s: string) => s.trim());
+      const focus = opts.focus ? opts.focus.split(",").map((s: string) => s.trim()) : [];
+      const labels = opts.labels ? opts.labels.split(",").map((s: string) => s.trim()) : [];
 
       try {
         // Write to TOML

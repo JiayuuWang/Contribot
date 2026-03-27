@@ -102,13 +102,13 @@ name = "owner/repo"
 | 필드 | 필수 | 기본값 | 효과 |
 |------|------|--------|------|
 | `name` | **예** | — | `owner/repo` 형식의 GitHub 저장소 |
-| `focus` | 아니오 | `["bug-fixes"]` | 기여 유형. 스캔 시 Claude가 무엇을 찾을지 결정합니다. 가능한 값: `bug-fixes`, `tests`, `documentation`, `refactoring`, `features`, `issues` |
+| `focus` | 아니오 | `[]` (제한 없음) | 기여 유형. **비워두면 제한 없음**, 모든 영역에서 기여 기회를 찾습니다. 값을 지정하면 해당 영역만 탐색: `bug-fixes`, `tests`, `documentation`, `refactoring`, `features`, `issues` |
 | `reasons` | 아니오 | `""` | Claude에 전달되는 컨텍스트. 왜 기여하고 싶은지 설명하여 더 나은 판단을 돕습니다 |
-| `issue_labels` | 아니오 | `["good first issue"]` | 이슈 필터링에 사용할 GitHub 레이블. 이 레이블이 있는 이슈만 스캔됩니다 |
+| `issue_labels` | 아니오 | `[]` (필터 없음) | 이슈 필터링에 사용할 GitHub 레이블. **비워두면 필터 없음**, 모든 오픈 이슈가 스캔됩니다. 레이블을 지정하면 해당 레이블의 이슈만 스캔 |
 | `max_prs_per_day` | 아니오 | `2` | 이 저장소의 일일 PR 상한. `0`으로 설정하면 스캔은 계속하지만 PR 생성은 중지됩니다 |
 | `enabled` | 아니오 | `true` | `false`로 설정하면 스캔 주기에서 이 저장소를 건너뜁니다 |
 
-> **`focus`에 대해:** focus 목록에 `"issues"`를 추가해야만 *새 이슈 생성* 기능이 활성화됩니다. 없으면 PR만 생성합니다. `"tests"`, `"documentation"`, `"refactoring"`을 추가하면 이슈 기반 기여를 넘어 선제적 코드 스캔이 활성화됩니다.
+> **`focus`에 대해:** 비워두면 Contribot은 새 이슈 생성을 포함한 모든 영역에서 기여합니다. 지정하면 나열된 유형으로만 제한됩니다 — 예: `["bug-fixes", "tests"]`는 버그 수정과 테스트 추가만 하며, `"issues"`를 명시적으로 포함하지 않으면 새 이슈를 **생성하지 않습니다**.
 
 ### 4단계: 설정 확인
 

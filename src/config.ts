@@ -14,9 +14,9 @@ const ContributionFocusEnum = z.enum([
 
 const RepoConfigSchema = z.object({
   name: z.string().regex(/^[^/]+\/[^/]+$/, "Must be owner/repo format"),
-  focus: z.array(ContributionFocusEnum).default(["bug-fixes"]),
+  focus: z.array(ContributionFocusEnum).default([]),
   reasons: z.string().default(""),
-  issue_labels: z.array(z.string()).default(["good first issue"]),
+  issue_labels: z.array(z.string()).default([]),
   max_prs_per_day: z.number().int().min(0).default(2),
   enabled: z.boolean().default(true),
 });
@@ -98,9 +98,9 @@ username = ""
 #
 # [[repos]]
 # name = "owner/repo"                          # REQUIRED: GitHub repo
-# focus = ["bug-fixes"]                        # optional: what to contribute
+# focus = []                                   # optional: empty = all areas
 # reasons = ""                                 # optional: context for Claude
-# issue_labels = ["good first issue"]          # optional: issue filter
+# issue_labels = []                            # optional: empty = all issues
 # max_prs_per_day = 2                          # optional: daily PR cap
 # enabled = true                               # optional: skip if false
 `;

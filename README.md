@@ -102,13 +102,13 @@ name = "owner/repo"
 | Field | Required | Default | Effect |
 |-------|----------|---------|--------|
 | `name` | **Yes** | — | GitHub repo in `owner/repo` format |
-| `focus` | No | `["bug-fixes"]` | What to contribute. Controls what Claude looks for during scans. Values: `bug-fixes`, `tests`, `documentation`, `refactoring`, `features`, `issues` |
+| `focus` | No | `[]` (all areas) | What to contribute. **Empty = unrestricted**, Contribot will look at all areas. Specify values to narrow scope: `bug-fixes`, `tests`, `documentation`, `refactoring`, `features`, `issues` |
 | `reasons` | No | `""` | Context passed to Claude explaining why you want to contribute. Helps it make better decisions |
-| `issue_labels` | No | `["good first issue"]` | GitHub labels to filter issues. Only issues with these labels are scanned |
+| `issue_labels` | No | `[]` (all issues) | GitHub labels to filter issues. **Empty = no filter**, all open issues are scanned. Specify labels to narrow scope |
 | `max_prs_per_day` | No | `2` | Daily PR cap for this repo. Set to `0` to pause PRs while still scanning |
 | `enabled` | No | `true` | Set to `false` to skip this repo during scan cycles |
 
-> **Note on `focus`:** Only adding `"issues"` to the focus list enables Contribot to *create new issues*. Without it, Contribot only creates PRs. Adding `"tests"`, `"documentation"`, or `"refactoring"` enables proactive codebase scanning beyond issue-based contributions.
+> **How `focus` works:** When empty, Contribot contributes in all areas including creating new issues. When specified, it restricts to listed types only — e.g. `["bug-fixes", "tests"]` means it will only fix bugs and add tests, and will **not** create new issues unless `"issues"` is explicitly included.
 
 ### Step 4: Verify everything
 

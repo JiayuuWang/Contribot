@@ -25,26 +25,27 @@ username = ""
 #   name (REQUIRED)
 #     Format: "owner/repo". The GitHub repository to contribute to.
 #
-#   focus (optional, default: ["bug-fixes"])
-#     What types of contributions to make. Possible values:
+#   focus (optional, default: [] = unrestricted)
+#     What types of contributions to make. When empty, Contribot will
+#     contribute in ALL areas — bug fixes, tests, docs, refactoring,
+#     features, and issue creation. Specify values to restrict:
 #       "bug-fixes"      - Find and fix bugs from open issues
 #       "tests"          - Add missing test coverage
 #       "documentation"  - Improve docs, READMEs, comments
 #       "refactoring"    - Clean up code duplication, dead code
 #       "features"       - Implement small feature requests
 #       "issues"         - Proactively create new issues when problems are found
-#     This directly controls what Claude looks for during scans.
-#     Only "issues" enables creating new issues (not just PRs).
 #
 #   reasons (optional, default: "")
 #     Why you want to contribute. Passed to Claude as context to help it
 #     understand your perspective and make better contribution decisions.
 #     Example: "I use this library daily and want to improve error messages"
 #
-#   issue_labels (optional, default: ["good first issue"])
+#   issue_labels (optional, default: [] = no filter)
 #     GitHub issue labels to filter when scanning for issues to fix.
-#     Only issues with at least one of these labels will be considered.
-#     Common choices: "good first issue", "help wanted", "bug", "enhancement"
+#     When empty, ALL open issues are considered (no label restriction).
+#     Specify labels to narrow the scope:
+#       e.g. ["good first issue", "help wanted", "bug"]
 #
 #   max_prs_per_day (optional, default: 2)
 #     Maximum number of PRs to create per day for this repo.
@@ -57,15 +58,15 @@ username = ""
 #
 # ============================================================================
 
-# Minimal example (only name is required, everything else uses defaults):
+# Minimal example — contributes in all areas, scans all issues:
 # [[repos]]
 # name = "owner/repo"
 
-# Full example with all options:
+# Restricted example — only fix bugs from "help wanted" issues:
 # [[repos]]
 # name = "owner/repo"
-# focus = ["bug-fixes", "tests", "documentation"]
+# focus = ["bug-fixes"]
+# issue_labels = ["help wanted"]
 # reasons = "I use this library daily and want to improve error messages"
-# issue_labels = ["good first issue", "help wanted", "bug"]
 # max_prs_per_day = 2
 # enabled = true

@@ -102,13 +102,13 @@ name = "owner/repo"
 | 字段 | 必填 | 默认值 | 作用 |
 |------|------|--------|------|
 | `name` | **是** | — | GitHub 仓库，格式 `owner/repo` |
-| `focus` | 否 | `["bug-fixes"]` | 贡献方向，决定 Claude 在扫描时关注什么。可选值：`bug-fixes`、`tests`、`documentation`、`refactoring`、`features`、`issues` |
+| `focus` | 否 | `[]`（不限制） | 贡献方向。**留空 = 不限制**，Contribot 将从所有方向寻找贡献机会。填写后仅关注指定方向：`bug-fixes`、`tests`、`documentation`、`refactoring`、`features`、`issues` |
 | `reasons` | 否 | `""` | 传递给 Claude 的上下文，说明你为什么想贡献，帮助它做出更好的判断 |
-| `issue_labels` | 否 | `["good first issue"]` | 用于过滤 GitHub Issue 的标签，只有带这些标签的 Issue 才会被扫描 |
+| `issue_labels` | 否 | `[]`（不过滤） | 用于过滤 GitHub Issue 的标签。**留空 = 不过滤**，所有开放的 Issue 都会被扫描。填写后仅扫描带这些标签的 Issue |
 | `max_prs_per_day` | 否 | `2` | 该仓库每日 PR 上限。设为 `0` 可暂停 PR 创建但仍继续扫描 |
 | `enabled` | 否 | `true` | 设为 `false` 则在扫描周期中跳过该仓库 |
 
-> **关于 `focus`：** 只有在 focus 列表中添加 `"issues"` 才会启用*创建新 Issue* 功能。不加则只创建 PR。添加 `"tests"`、`"documentation"` 或 `"refactoring"` 会启用主动代码扫描，而不仅限于基于 Issue 的贡献。
+> **关于 `focus`：** 留空时 Contribot 在所有方向上贡献，包括创建新 Issue。填写后仅限于列出的类型——例如 `["bug-fixes", "tests"]` 表示只修复 bug 和补充测试，**不会**创建新 Issue，除非显式包含 `"issues"`。
 
 ### 第四步：验证配置
 

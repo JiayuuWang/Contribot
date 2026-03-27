@@ -8,9 +8,13 @@ export function issueAnalysisPrompt(issues: Issue[], repoFullName: string, focus
     )
     .join("\n\n");
 
+  const focusDescription = focus.length > 0
+    ? `The contributor is interested in: ${focus.join(", ")}`
+    : "The contributor is open to all types of contributions (bug fixes, tests, documentation, refactoring, features)";
+
   return `You are analyzing open issues from the GitHub repository "${repoFullName}" to find ones suitable for contribution.
 
-The contributor is interested in: ${focus.join(", ")}
+${focusDescription}
 
 Here are the open issues:
 
@@ -36,9 +40,13 @@ Respond with ONLY the JSON array, no other text.`;
 }
 
 export function codebaseScanPrompt(repoFullName: string, focus: string[]): string {
+  const focusDescription = focus.length > 0
+    ? `Focus on these areas: ${focus.join(", ")}`
+    : "Look at all areas: tests, documentation, bug fixes, and refactoring";
+
   return `You are scanning the codebase of "${repoFullName}" to find improvement opportunities.
 
-Focus on these areas: ${focus.join(", ")}
+${focusDescription}
 
 Look for:
 ${focus.includes("tests") ? "- Missing test coverage for critical functions" : ""}

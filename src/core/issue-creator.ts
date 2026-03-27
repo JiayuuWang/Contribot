@@ -19,7 +19,9 @@ export async function proposeAndCreateIssues(
   config: ContribotConfig,
   dryRun = false
 ): Promise<void> {
-  if (!repoConfig.focus.includes("issues")) return;
+  // Empty focus = unrestricted, allow issue creation
+  // Non-empty focus = only create issues if "issues" is explicitly listed
+  if (repoConfig.focus.length > 0 && !repoConfig.focus.includes("issues")) return;
 
   const prompt = `You are analyzing the codebase of "${repoConfig.name}" to find issues worth reporting.
 

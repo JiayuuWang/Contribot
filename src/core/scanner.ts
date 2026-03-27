@@ -38,7 +38,7 @@ export async function scanRepo(
   }).returning();
 
   try {
-    // 1. Fetch open issues
+    // 1. Fetch open issues (empty labels = no label filter, fetch all)
     const rawIssues = await listIssues(repoConfig.name, repoConfig.issue_labels);
     logger.info({ repo: repoConfig.name, count: rawIssues.length }, "Fetched issues");
 
@@ -81,11 +81,13 @@ export async function scanRepo(
       }
     }
 
-    // 4. Scan codebase for opportunities (if focus includes relevant areas)
+    // 4. Scan codebase for opportunities
+    //    Empty focus = scan all areas; otherwise only scan specified areas
     let opportunities: CodeOpportunity[] = [];
-    const scanFocus = repoConfig.focus.filter((f) =>
-      ["tests", "documentation", "refactoring"].includes(f)
-    );
+    const codebaseScanAreas = ["tests", "documentation", "refactoring"];
+    const scanFocus = repoConfig.focus.length === 0
+      ? codebaseScanAreas
+      : repoConfig.focus.filter((f) => codebaseScanAreas.includes(f));
 
     if (scanFocus.length > 0) {
       const prompt = codebaseScanPrompt(repoConfig.name, scanFocus);

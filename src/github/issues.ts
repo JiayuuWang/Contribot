@@ -31,6 +31,8 @@ export async function listIssues(
     "number,title,body,labels,state,comments,createdAt,updatedAt,url",
   ];
 
+  // Only filter by label when labels are explicitly specified
+  // Empty array = fetch all open issues without label restriction
   for (const label of labels) {
     args.push("--label", label);
   }

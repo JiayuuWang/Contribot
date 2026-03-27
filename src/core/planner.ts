@@ -27,9 +27,12 @@ export function planContributions(
 
   const plans: ContributionPlan[] = [];
 
+  // When focus is empty, all issues match (unrestricted mode)
+  const unrestricted = repoConfig.focus.length === 0;
+
   // Priority 1: Easy issues that match focus
   const easyIssues = scanResult.issues
-    .filter((i) => i.feasibility === "easy" && i.matchesFocus)
+    .filter((i) => i.feasibility === "easy" && (unrestricted || i.matchesFocus))
     .sort((a, b) => (a.feasibility === "easy" ? -1 : 1));
 
   for (const issue of easyIssues) {
@@ -44,7 +47,7 @@ export function planContributions(
 
   // Priority 2: Medium issues
   const mediumIssues = scanResult.issues
-    .filter((i) => i.feasibility === "medium" && i.matchesFocus);
+    .filter((i) => i.feasibility === "medium" && (unrestricted || i.matchesFocus));
 
   for (const issue of mediumIssues) {
     if (plans.length >= remaining) break;
