@@ -11,6 +11,7 @@ import { executeContribution } from "./contributor.js";
 import { proposeAndCreateIssues } from "./issue-creator.js";
 import { getAuthenticatedUser } from "../github/gh-cli.js";
 import { logger } from "../utils/logger.js";
+import { activityLog } from "../utils/activity-log.js";
 
 export interface OrchestratorOptions {
   once?: boolean;
@@ -51,6 +52,7 @@ export class Orchestrator {
     if (!this.username) {
       this.username = await getAuthenticatedUser();
       logger.info({ username: this.username }, "Detected GitHub user");
+      activityLog.info("orchestrator", `GitHub user: ${this.username}`);
     }
 
     // Mark interrupted tasks from previous run
@@ -113,6 +115,7 @@ export class Orchestrator {
 
   private async runCycle(): Promise<void> {
     logger.info("Starting scan cycle");
+    activityLog.info("orchestrator", "Starting scan cycle");
 
     const allRepos = await this.db.select().from(repos);
     const enabledRepos = allRepos.filter((r) => r.enabled);
@@ -153,6 +156,7 @@ export class Orchestrator {
     };
 
     logger.info({ repo: repoConfig.name }, "Processing repo");
+    activityLog.info("orchestrator", `Processing repo`, repoConfig.name);
 
     try {
       // 1. Setup workspace (fork + clone + sync)

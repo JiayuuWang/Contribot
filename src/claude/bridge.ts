@@ -1,5 +1,6 @@
-import { runSubprocess } from "../utils/subprocess.js";
+import { spawn } from "child_process";
 import { logger } from "../utils/logger.js";
+import { activityLog } from "../utils/activity-log.js";
 
 export interface ClaudeInvocation {
   prompt: string;
@@ -12,6 +13,7 @@ export interface ClaudeInvocation {
   model?: string;
   timeout?: number;
   appendProvider?: string;
+  repo?: string;
 }
 
 export interface ClaudeResult {
@@ -53,50 +55,92 @@ export async function invokeClaude(opts: ClaudeInvocation): Promise<ClaudeResult
     args.push("--append-system-prompt", opts.appendProvider);
   }
 
-  // The prompt goes last
   args.push("--", opts.prompt);
 
-  logger.info(
-    { cwd: opts.cwd, model: opts.model, prompt: opts.prompt.slice(0, 100) + "..." },
-    "Invoking Claude"
-  );
+  const repoLabel = opts.repo ?? "unknown";
+  const promptPreview = opts.prompt.slice(0, 80).replace(/\n/g, " ");
 
-  try {
-    const result = await runSubprocess("claude", args, {
+  logger.info({ cwd: opts.cwd, model: opts.model }, "Invoking Claude");
+  activityLog.info("claude", `Invoking Claude: ${promptPreview}...`, repoLabel);
+
+  return new Promise((resolve) => {
+    const fullCommand =
+      process.platform === "win32"
+        ? `claude ${args.map(escapeArg).join(" ")}`
+        : "claude";
+    const spawnArgs = process.platform === "win32" ? [] : args;
+
+    const proc = spawn(fullCommand, spawnArgs, {
       cwd: opts.cwd,
-      timeout: opts.timeout ?? 600_000, // 10 minutes default
+      env: process.env,
+      shell: true,
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
-    if (result.exitCode !== 0) {
-      logger.error({ stderr: result.stderr }, "Claude invocation failed");
-      return {
-        success: false,
-        output: result.stdout,
-        error: result.stderr || `Exit code: ${result.exitCode}`,
-      };
-    }
+    let stdout = "";
+    let stderr = "";
 
-    let parsed: any = undefined;
-    if (opts.outputFormat === "json" || opts.jsonSchema) {
-      try {
-        parsed = JSON.parse(result.stdout);
-      } catch {
-        // If JSON parse fails, return raw output
-        logger.warn("Failed to parse Claude output as JSON");
+    proc.stdout.on("data", (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      // Stream output lines to activity log
+      const lines = chunk.split("\n").filter((l: string) => l.trim());
+      for (const line of lines) {
+        activityLog.debug("claude:output", line.slice(0, 200), repoLabel);
       }
-    }
+    });
 
-    return {
-      success: true,
-      output: result.stdout,
-      parsed,
-    };
-  } catch (err: any) {
-    logger.error({ err }, "Claude invocation error");
-    return {
-      success: false,
-      output: "",
-      error: err.message,
-    };
+    proc.stderr.on("data", (data) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      activityLog.warn("claude:stderr", chunk.slice(0, 200), repoLabel);
+    });
+
+    const timeout = opts.timeout ?? 600_000;
+    const timer = setTimeout(() => {
+      proc.kill("SIGTERM");
+      activityLog.error("claude", "Process timed out", repoLabel);
+      resolve({ success: false, output: stdout, error: `Timed out after ${timeout}ms` });
+    }, timeout);
+
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+
+      if (code !== 0) {
+        activityLog.error("claude", `Exited with code ${code}`, repoLabel);
+        resolve({
+          success: false,
+          output: stdout,
+          error: stderr || `Exit code: ${code}`,
+        });
+        return;
+      }
+
+      activityLog.info("claude", "Completed successfully", repoLabel);
+
+      let parsed: any = undefined;
+      if (opts.outputFormat === "json" || opts.jsonSchema) {
+        try {
+          parsed = JSON.parse(stdout);
+        } catch {
+          logger.warn("Failed to parse Claude output as JSON");
+        }
+      }
+
+      resolve({ success: true, output: stdout, parsed });
+    });
+
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      activityLog.error("claude", `Spawn error: ${err.message}`, repoLabel);
+      resolve({ success: false, output: "", error: err.message });
+    });
+  });
+}
+
+function escapeArg(arg: string): string {
+  if (/[ "&|<>^]/.test(arg)) {
+    return `"${arg.replace(/"/g, '\\"')}"`;
   }
+  return arg;
 }

@@ -1,5 +1,7 @@
 # Contribot
 
+**[English](README.md)** | **[中文](README.zh-CN.md)** | **[한국어](README.ko.md)**
+
 A CLI tool that automatically contributes to GitHub open-source repositories using [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as the reasoning engine. It continuously monitors your target repos, analyzes issues and codebase, then submits PRs under **your own GitHub account**.
 
 ## How It Works
@@ -41,34 +43,34 @@ pnpm install
 
 ### Step 2: Ensure prerequisites are ready
 
-Contribot 依赖三个外部工具，需要提前安装并完成认证。**它们只是前置条件，不需要在后台保持运行**——Contribot 会在运行时自动以子进程方式调用它们。
+Contribot depends on three external tools. Install and authenticate them beforehand. **They are prerequisites only — they do not need to run in the background.** Contribot invokes them automatically as subprocesses at runtime.
 
-#### 2a. GitHub CLI — 用于 fork 仓库和创建 PR
+#### 2a. GitHub CLI — for forking repos and creating PRs
 
 ```bash
-# 安装后，登录你的 GitHub 账号（交互式，按提示操作）
+# After installing, log in to your GitHub account (interactive)
 gh auth login
 ```
 
-完成后可验证：`gh auth status` 应显示你的用户名。
+Verify: `gh auth status` should show your username.
 
-#### 2b. Claude Code — AI 推理引擎
+#### 2b. Claude Code — AI reasoning engine
 
 ```bash
-# 安装 Claude Code CLI（如果还没装的话）
+# Install Claude Code CLI (if not already installed)
 npm install -g @anthropic-ai/claude-code
 
-# 首次运行会启动配置向导，完成 API key 或 OAuth 认证
+# First run launches the setup wizard for API key or OAuth
 claude
 ```
 
-进入 Claude Code 的交互界面说明配置成功。输入 `/exit` 退出即可。**你不需要让 Claude Code 保持运行**——Contribot 运行时会通过 `claude --print` 命令在后台自动调用它。
+Seeing the interactive interface means setup is complete. Type `/exit` to quit. **You do not need to keep Claude Code running** — Contribot calls it via `claude --print` in the background.
 
-#### 2c. Git — 确认 git 已配置用户信息
+#### 2c. Git — verify user config
 
 ```bash
-git config --global user.name   # 应显示你的名字
-git config --global user.email  # 应显示你的邮箱
+git config --global user.name   # should show your name
+git config --global user.email  # should show your email
 ```
 
 ### Step 3: Initialize Contribot config
@@ -77,25 +79,25 @@ git config --global user.email  # 应显示你的邮箱
 pnpm dev config init
 ```
 
-这会在项目根目录生成 `contribot.toml` 配置文件。用编辑器打开它，添加你想贡献的目标仓库：
+This creates `contribot.toml` in the project root. Open it and add your target repositories:
 
 ```toml
 [general]
-scan_interval_minutes = 60    # 扫描间隔（分钟）
-max_concurrent_repos = 3      # 同时处理的仓库数
-claude_model = "sonnet"       # Claude 模型（sonnet/opus/haiku）
-max_budget_per_task_usd = 0.50  # 每次 Claude 调用的花费上限
+scan_interval_minutes = 60       # How often to scan (minutes)
+max_concurrent_repos = 3         # Parallel repo processing
+claude_model = "sonnet"          # Claude model (sonnet/opus/haiku)
+max_budget_per_task_usd = 0.50   # Cost cap per Claude invocation
 dashboard_port = 3847
 
 [github]
-username = ""  # 留空则自动从 gh auth 检测
+username = ""  # Auto-detected from gh auth if left empty
 
-# 添加目标仓库（可添加多个 [[repos]] 块）
+# Add target repos (multiple [[repos]] blocks allowed)
 [[repos]]
 name = "owner/repo"
-focus = ["bug-fixes", "tests"]            # 贡献方向
-reasons = "Interested in this project"    # 为什么想贡献
-issue_labels = ["good first issue", "help wanted"]  # 要关注的 issue 标签
+focus = ["bug-fixes", "tests"]
+reasons = "Interested in contributing to this project"
+issue_labels = ["good first issue", "help wanted"]
 max_prs_per_day = 2
 enabled = true
 ```
@@ -106,7 +108,7 @@ enabled = true
 pnpm dev config check
 ```
 
-全部通过的输出：
+Expected output:
 
 ```
   ✓ git: git version 2.x.x
@@ -118,22 +120,22 @@ pnpm dev config check
 All checks passed! Ready to run.
 ```
 
-如果某项 ✗ 失败，根据提示安装或认证对应工具即可。
+If any check fails, install or authenticate the corresponding tool.
 
 ## Usage
 
 ### Manage target repos
 
-有两种方式添加目标仓库，**任选其一即可**，无需重复操作：
+Two ways to add target repos — **pick either one**, no need to do both:
 
-**方式 A：直接编辑 `contribot.toml`**（推荐用于批量配置）
+**Option A: Edit `contribot.toml` directly** (recommended for bulk configuration)
 
-在配置文件中添加 `[[repos]]` 块，启动时 Contribot 会自动同步到数据库。
+Add `[[repos]]` blocks to the config file. Contribot syncs them to the database on startup.
 
-**方式 B：使用 CLI 命令**（推荐用于快速添加单个仓库）
+**Option B: Use CLI commands** (recommended for quickly adding a single repo)
 
 ```bash
-# Add a repo (会同时写入 contribot.toml 和数据库)
+# Add a repo (writes to both contribot.toml and database)
 pnpm dev repo add owner/repo --focus "bug-fixes,tests" --reasons "Want to contribute"
 
 # List repos
@@ -179,7 +181,7 @@ pnpm dev history
 pnpm dev dashboard
 ```
 
-The dashboard runs at `http://localhost:3847` and auto-refreshes every 10 seconds.
+The dashboard runs at `http://localhost:3847` with live status updates.
 
 ## Architecture
 
@@ -191,7 +193,7 @@ src/
 ├── git/          # Native git operations (clone, branch, commit, push)
 ├── github/       # GitHub CLI wrappers (issues, PRs)
 ├── db/           # SQLite persistence (drizzle-orm)
-├── dashboard/    # Web UI (Fastify + htmx + pico.css)
+├── dashboard/    # Web UI (Fastify + htmx)
 └── utils/        # Logger, subprocess runner
 ```
 
@@ -201,7 +203,6 @@ src/
 - **p-queue** for concurrency — process N repos in parallel
 - **Claude `--print` mode** — non-interactive subprocess, structured output
 - **Native `git` + `gh` CLI** — uses your credentials, your identity
-- **htmx dashboard** — no build step, ~30KB client-side
 
 ## Safety Controls
 
@@ -225,7 +226,7 @@ src/
 
 ## Tech Stack
 
-TypeScript, Node.js, SQLite (better-sqlite3 + drizzle-orm), Commander, Fastify, htmx, pico.css, pino, node-cron, p-queue
+TypeScript, Node.js, SQLite (better-sqlite3 + drizzle-orm), Commander, Fastify, htmx, pino, node-cron, p-queue
 
 ## License
 
