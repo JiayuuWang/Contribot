@@ -31,7 +31,7 @@ All git operations use native `git` commands. PRs are created under your GitHub 
 
 ## Setup
 
-### 1. Clone & Install
+### Step 1: Clone & Install
 
 ```bash
 git clone https://github.com/JiayuuWang/Contribot.git
@@ -39,51 +39,74 @@ cd Contribot
 pnpm install
 ```
 
-### 2. Authenticate tools
+### Step 2: Ensure prerequisites are ready
+
+Contribot 依赖三个外部工具，需要提前安装并完成认证。**它们只是前置条件，不需要在后台保持运行**——Contribot 会在运行时自动以子进程方式调用它们。
+
+#### 2a. GitHub CLI — 用于 fork 仓库和创建 PR
 
 ```bash
-# GitHub CLI
+# 安装后，登录你的 GitHub 账号（交互式，按提示操作）
 gh auth login
+```
 
-# Claude Code (follow its setup wizard)
+完成后可验证：`gh auth status` 应显示你的用户名。
+
+#### 2b. Claude Code — AI 推理引擎
+
+```bash
+# 安装 Claude Code CLI（如果还没装的话）
+npm install -g @anthropic-ai/claude-code
+
+# 首次运行会启动配置向导，完成 API key 或 OAuth 认证
 claude
 ```
 
-### 3. Initialize config
+进入 Claude Code 的交互界面说明配置成功。输入 `/exit` 退出即可。**你不需要让 Claude Code 保持运行**——Contribot 运行时会通过 `claude --print` 命令在后台自动调用它。
+
+#### 2c. Git — 确认 git 已配置用户信息
+
+```bash
+git config --global user.name   # 应显示你的名字
+git config --global user.email  # 应显示你的邮箱
+```
+
+### Step 3: Initialize Contribot config
 
 ```bash
 pnpm dev config init
 ```
 
-This creates `contribot.toml`. Edit it to add your target repositories:
+这会在项目根目录生成 `contribot.toml` 配置文件。用编辑器打开它，添加你想贡献的目标仓库：
 
 ```toml
 [general]
-scan_interval_minutes = 60    # How often to scan
-max_concurrent_repos = 3      # Parallel repo processing
-claude_model = "sonnet"       # Claude model to use
-max_budget_per_task_usd = 0.50
+scan_interval_minutes = 60    # 扫描间隔（分钟）
+max_concurrent_repos = 3      # 同时处理的仓库数
+claude_model = "sonnet"       # Claude 模型（sonnet/opus/haiku）
+max_budget_per_task_usd = 0.50  # 每次 Claude 调用的花费上限
 dashboard_port = 3847
 
 [github]
-username = ""  # Auto-detected from `gh auth status`
+username = ""  # 留空则自动从 gh auth 检测
 
+# 添加目标仓库（可添加多个 [[repos]] 块）
 [[repos]]
 name = "owner/repo"
-focus = ["bug-fixes", "tests"]
-reasons = "Interested in contributing to this project"
-issue_labels = ["good first issue", "help wanted"]
+focus = ["bug-fixes", "tests"]            # 贡献方向
+reasons = "Interested in this project"    # 为什么想贡献
+issue_labels = ["good first issue", "help wanted"]  # 要关注的 issue 标签
 max_prs_per_day = 2
 enabled = true
 ```
 
-### 4. Verify setup
+### Step 4: Verify everything
 
 ```bash
 pnpm dev config check
 ```
 
-Expected output:
+全部通过的输出：
 
 ```
   ✓ git: git version 2.x.x
@@ -91,7 +114,11 @@ Expected output:
   ✓ gh auth: Logged in as yourname
   ✓ claude CLI: x.x.x (Claude Code)
   ✓ contribot.toml: valid
+
+All checks passed! Ready to run.
 ```
+
+如果某项 ✗ 失败，根据提示安装或认证对应工具即可。
 
 ## Usage
 
