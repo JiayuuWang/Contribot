@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import PQueue from "p-queue";
-import { type ContribotConfig, type RepoConfig } from "../config.js";
+import { type ContribotConfig, type RepoConfig, syncReposToDb } from "../config.js";
 import { getDb } from "../db/connection.js";
 import { repos, taskQueue } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
@@ -42,6 +42,9 @@ export class Orchestrator {
 
   async start(): Promise<void> {
     this.running = true;
+
+    // Sync TOML repos → DB (single source of truth)
+    await syncReposToDb(this.config, this.config.general.db_path);
 
     // Detect GitHub username
     this.username = this.config.github.username;

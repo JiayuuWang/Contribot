@@ -108,6 +108,63 @@ username = ""
   return `Config created: ${configPath}`;
 }
 
+/**
+ * Sync repos from TOML config into the database.
+ * - New repos in TOML → insert into DB
+ * - Repos removed from TOML → delete from DB
+ * - Repos already in DB → update config fields from TOML
+ * Runtime state (lastScannedAt, localPath, etc.) is preserved.
+ */
+export async function syncReposToDb(config: ContribotConfig, dbPath: string) {
+  const { getDb } = await import("./db/connection.js");
+  const { repos } = await import("./db/schema.js");
+  const { eq } = await import("drizzle-orm");
+
+  const db = getDb(dbPath);
+  const dbRepos = await db.select().from(repos);
+  const dbRepoMap = new Map(dbRepos.map((r) => [r.fullName, r]));
+  const tomlRepoNames = new Set(config.repos.map((r) => r.name));
+
+  // Insert or update repos from TOML
+  for (const repo of config.repos) {
+    const [owner, name] = repo.name.split("/");
+    const existing = dbRepoMap.get(repo.name);
+
+    if (existing) {
+      // Update config fields, preserve runtime state
+      await db
+        .update(repos)
+        .set({
+          focus: JSON.stringify(repo.focus),
+          reasons: repo.reasons,
+          issueLabels: JSON.stringify(repo.issue_labels),
+          maxPrsPerDay: repo.max_prs_per_day,
+          enabled: repo.enabled,
+        })
+        .where(eq(repos.id, existing.id));
+    } else {
+      // Insert new repo
+      await db.insert(repos).values({
+        fullName: repo.name,
+        owner,
+        name,
+        focus: JSON.stringify(repo.focus),
+        reasons: repo.reasons,
+        issueLabels: JSON.stringify(repo.issue_labels),
+        maxPrsPerDay: repo.max_prs_per_day,
+        enabled: repo.enabled,
+      });
+    }
+  }
+
+  // Delete repos that were removed from TOML
+  for (const dbRepo of dbRepos) {
+    if (!tomlRepoNames.has(dbRepo.fullName)) {
+      await db.delete(repos).where(eq(repos.id, dbRepo.id));
+    }
+  }
+}
+
 export function addRepoToConfig(repo: RepoConfig) {
   const configPath = findConfigPath();
   const raw = readFileSync(configPath, "utf-8");

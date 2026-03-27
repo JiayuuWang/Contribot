@@ -124,8 +124,16 @@ All checks passed! Ready to run.
 
 ### Manage target repos
 
+有两种方式添加目标仓库，**任选其一即可**，无需重复操作：
+
+**方式 A：直接编辑 `contribot.toml`**（推荐用于批量配置）
+
+在配置文件中添加 `[[repos]]` 块，启动时 Contribot 会自动同步到数据库。
+
+**方式 B：使用 CLI 命令**（推荐用于快速添加单个仓库）
+
 ```bash
-# Add a repo
+# Add a repo (会同时写入 contribot.toml 和数据库)
 pnpm dev repo add owner/repo --focus "bug-fixes,tests" --reasons "Want to contribute"
 
 # List repos

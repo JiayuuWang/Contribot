@@ -1,9 +1,13 @@
 import { Command } from "commander";
-import { loadConfig, addRepoToConfig, removeRepoFromConfig } from "../config.js";
+import {
+  loadConfig,
+  addRepoToConfig,
+  removeRepoFromConfig,
+  syncReposToDb,
+} from "../config.js";
 import { getDb } from "../db/connection.js";
 import { repos } from "../db/schema.js";
 import { eq } from "drizzle-orm";
-import { logger } from "../utils/logger.js";
 
 export function registerRepoCommands(program: Command) {
   const repo = program.command("repo").description("Manage target repositories");
@@ -24,9 +28,9 @@ export function registerRepoCommands(program: Command) {
 
       const focus = opts.focus.split(",").map((s: string) => s.trim());
       const labels = opts.labels.split(",").map((s: string) => s.trim());
-      const [owner, repoName] = name.split("/");
 
       try {
+        // Write to TOML
         addRepoToConfig({
           name,
           focus,
@@ -36,18 +40,9 @@ export function registerRepoCommands(program: Command) {
           enabled: true,
         });
 
+        // Sync TOML → DB
         const config = loadConfig();
-        const db = getDb(config.general.db_path);
-        await db.insert(repos).values({
-          fullName: name,
-          owner,
-          name: repoName,
-          focus: JSON.stringify(focus),
-          reasons: opts.reasons,
-          issueLabels: JSON.stringify(labels),
-          maxPrsPerDay: parseInt(opts.maxPrs, 10),
-          enabled: true,
-        });
+        await syncReposToDb(config, config.general.db_path);
 
         console.log(`Added repo: ${name}`);
         console.log(`  Focus: ${focus.join(", ")}`);
@@ -63,11 +58,12 @@ export function registerRepoCommands(program: Command) {
     .description("Remove a target repository")
     .action(async (name: string) => {
       try {
+        // Remove from TOML
         removeRepoFromConfig(name);
 
+        // Sync TOML → DB
         const config = loadConfig();
-        const db = getDb(config.general.db_path);
-        await db.delete(repos).where(eq(repos.fullName, name));
+        await syncReposToDb(config, config.general.db_path);
 
         console.log(`Removed repo: ${name}`);
       } catch (err: any) {
@@ -82,11 +78,17 @@ export function registerRepoCommands(program: Command) {
     .action(async () => {
       try {
         const config = loadConfig();
+
+        // Sync first so DB has latest TOML state
+        await syncReposToDb(config, config.general.db_path);
+
         const db = getDb(config.general.db_path);
         const allRepos = await db.select().from(repos);
 
         if (allRepos.length === 0) {
-          console.log("No repos configured. Use `contribot repo add <owner/repo>` to add one.");
+          console.log(
+            "No repos configured. Add [[repos]] to contribot.toml or use `contribot repo add <owner/repo>`."
+          );
           return;
         }
 
