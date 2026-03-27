@@ -92,15 +92,23 @@ dashboard_port = 3847
 [github]
 username = ""  # Auto-detected from gh auth if left empty
 
-# Add target repos (multiple [[repos]] blocks allowed)
+# Only "name" is required. All other fields have defaults.
 [[repos]]
 name = "owner/repo"
-focus = ["bug-fixes", "tests"]
-reasons = "Interested in contributing to this project"
-issue_labels = ["good first issue", "help wanted"]
-max_prs_per_day = 2
-enabled = true
 ```
+
+#### Repo fields reference
+
+| Field | Required | Default | Effect |
+|-------|----------|---------|--------|
+| `name` | **Yes** | — | GitHub repo in `owner/repo` format |
+| `focus` | No | `["bug-fixes"]` | What to contribute. Controls what Claude looks for during scans. Values: `bug-fixes`, `tests`, `documentation`, `refactoring`, `features`, `issues` |
+| `reasons` | No | `""` | Context passed to Claude explaining why you want to contribute. Helps it make better decisions |
+| `issue_labels` | No | `["good first issue"]` | GitHub labels to filter issues. Only issues with these labels are scanned |
+| `max_prs_per_day` | No | `2` | Daily PR cap for this repo. Set to `0` to pause PRs while still scanning |
+| `enabled` | No | `true` | Set to `false` to skip this repo during scan cycles |
+
+> **Note on `focus`:** Only adding `"issues"` to the focus list enables Contribot to *create new issues*. Without it, Contribot only creates PRs. Adding `"tests"`, `"documentation"`, or `"refactoring"` enables proactive codebase scanning beyond issue-based contributions.
 
 ### Step 4: Verify everything
 

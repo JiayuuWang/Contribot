@@ -92,15 +92,23 @@ dashboard_port = 3847
 [github]
 username = ""  # 비워두면 gh auth에서 자동 감지
 
-# 대상 저장소 추가 ([[repos]] 블록 여러 개 가능)
+# name만 필수입니다. 나머지 필드는 기본값이 있습니다.
 [[repos]]
 name = "owner/repo"
-focus = ["bug-fixes", "tests"]
-reasons = "이 프로젝트에 기여하고 싶습니다"
-issue_labels = ["good first issue", "help wanted"]
-max_prs_per_day = 2
-enabled = true
 ```
+
+#### 저장소 필드 참조
+
+| 필드 | 필수 | 기본값 | 효과 |
+|------|------|--------|------|
+| `name` | **예** | — | `owner/repo` 형식의 GitHub 저장소 |
+| `focus` | 아니오 | `["bug-fixes"]` | 기여 유형. 스캔 시 Claude가 무엇을 찾을지 결정합니다. 가능한 값: `bug-fixes`, `tests`, `documentation`, `refactoring`, `features`, `issues` |
+| `reasons` | 아니오 | `""` | Claude에 전달되는 컨텍스트. 왜 기여하고 싶은지 설명하여 더 나은 판단을 돕습니다 |
+| `issue_labels` | 아니오 | `["good first issue"]` | 이슈 필터링에 사용할 GitHub 레이블. 이 레이블이 있는 이슈만 스캔됩니다 |
+| `max_prs_per_day` | 아니오 | `2` | 이 저장소의 일일 PR 상한. `0`으로 설정하면 스캔은 계속하지만 PR 생성은 중지됩니다 |
+| `enabled` | 아니오 | `true` | `false`로 설정하면 스캔 주기에서 이 저장소를 건너뜁니다 |
+
+> **`focus`에 대해:** focus 목록에 `"issues"`를 추가해야만 *새 이슈 생성* 기능이 활성화됩니다. 없으면 PR만 생성합니다. `"tests"`, `"documentation"`, `"refactoring"`을 추가하면 이슈 기반 기여를 넘어 선제적 코드 스캔이 활성화됩니다.
 
 ### 4단계: 설정 확인
 

@@ -15,11 +15,57 @@ dashboard_port = 3847
 # Auto-detected from `gh auth status` if empty
 username = ""
 
-# Target repositories
+# ============================================================================
+# Target Repositories
+# ============================================================================
+# Add one [[repos]] block per target repository.
+#
+# Field reference:
+#
+#   name (REQUIRED)
+#     Format: "owner/repo". The GitHub repository to contribute to.
+#
+#   focus (optional, default: ["bug-fixes"])
+#     What types of contributions to make. Possible values:
+#       "bug-fixes"      - Find and fix bugs from open issues
+#       "tests"          - Add missing test coverage
+#       "documentation"  - Improve docs, READMEs, comments
+#       "refactoring"    - Clean up code duplication, dead code
+#       "features"       - Implement small feature requests
+#       "issues"         - Proactively create new issues when problems are found
+#     This directly controls what Claude looks for during scans.
+#     Only "issues" enables creating new issues (not just PRs).
+#
+#   reasons (optional, default: "")
+#     Why you want to contribute. Passed to Claude as context to help it
+#     understand your perspective and make better contribution decisions.
+#     Example: "I use this library daily and want to improve error messages"
+#
+#   issue_labels (optional, default: ["good first issue"])
+#     GitHub issue labels to filter when scanning for issues to fix.
+#     Only issues with at least one of these labels will be considered.
+#     Common choices: "good first issue", "help wanted", "bug", "enhancement"
+#
+#   max_prs_per_day (optional, default: 2)
+#     Maximum number of PRs to create per day for this repo.
+#     Set to 0 to pause PR creation while still allowing scans.
+#     Prevents overwhelming maintainers with too many automated PRs.
+#
+#   enabled (optional, default: true)
+#     Set to false to skip this repo entirely during scan cycles.
+#     The repo stays in config but is ignored by the orchestrator.
+#
+# ============================================================================
+
+# Minimal example (only name is required, everything else uses defaults):
 # [[repos]]
 # name = "owner/repo"
-# focus = ["bug-fixes", "documentation", "tests", "refactoring"]
-# reasons = "Why you want to contribute"
-# issue_labels = ["good first issue", "help wanted"]
+
+# Full example with all options:
+# [[repos]]
+# name = "owner/repo"
+# focus = ["bug-fixes", "tests", "documentation"]
+# reasons = "I use this library daily and want to improve error messages"
+# issue_labels = ["good first issue", "help wanted", "bug"]
 # max_prs_per_day = 2
 # enabled = true

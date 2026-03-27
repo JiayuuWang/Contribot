@@ -92,15 +92,23 @@ dashboard_port = 3847
 [github]
 username = ""  # 留空则自动从 gh auth 检测
 
-# 添加目标仓库（可添加多个 [[repos]] 块）
+# 只有 name 是必填项，其他字段都有默认值
 [[repos]]
 name = "owner/repo"
-focus = ["bug-fixes", "tests"]
-reasons = "对这个项目感兴趣"
-issue_labels = ["good first issue", "help wanted"]
-max_prs_per_day = 2
-enabled = true
 ```
+
+#### 仓库字段说明
+
+| 字段 | 必填 | 默认值 | 作用 |
+|------|------|--------|------|
+| `name` | **是** | — | GitHub 仓库，格式 `owner/repo` |
+| `focus` | 否 | `["bug-fixes"]` | 贡献方向，决定 Claude 在扫描时关注什么。可选值：`bug-fixes`、`tests`、`documentation`、`refactoring`、`features`、`issues` |
+| `reasons` | 否 | `""` | 传递给 Claude 的上下文，说明你为什么想贡献，帮助它做出更好的判断 |
+| `issue_labels` | 否 | `["good first issue"]` | 用于过滤 GitHub Issue 的标签，只有带这些标签的 Issue 才会被扫描 |
+| `max_prs_per_day` | 否 | `2` | 该仓库每日 PR 上限。设为 `0` 可暂停 PR 创建但仍继续扫描 |
+| `enabled` | 否 | `true` | 设为 `false` 则在扫描周期中跳过该仓库 |
+
+> **关于 `focus`：** 只有在 focus 列表中添加 `"issues"` 才会启用*创建新 Issue* 功能。不加则只创建 PR。添加 `"tests"`、`"documentation"` 或 `"refactoring"` 会启用主动代码扫描，而不仅限于基于 Issue 的贡献。
 
 ### 第四步：验证配置
 

@@ -93,14 +93,16 @@ dashboard_port = 3847
 [github]
 username = ""
 
-# Add repos like this:
+# Add target repos below. Only "name" is required.
+# All other fields have sensible defaults.
+#
 # [[repos]]
-# name = "owner/repo"
-# focus = ["bug-fixes", "documentation"]
-# reasons = "Why you want to contribute"
-# issue_labels = ["good first issue", "help wanted"]
-# max_prs_per_day = 2
-# enabled = true
+# name = "owner/repo"                          # REQUIRED: GitHub repo
+# focus = ["bug-fixes"]                        # optional: what to contribute
+# reasons = ""                                 # optional: context for Claude
+# issue_labels = ["good first issue"]          # optional: issue filter
+# max_prs_per_day = 2                          # optional: daily PR cap
+# enabled = true                               # optional: skip if false
 `;
     writeFileSync(configPath, defaultConfig, "utf-8");
   }
