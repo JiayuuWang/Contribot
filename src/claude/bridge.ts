@@ -64,10 +64,10 @@ export async function invokeClaude(opts: ClaudeInvocation): Promise<ClaudeResult
   }
 
   // Prompt is passed as a CLI argument via `-- <prompt>`.
-  // On Windows with shell:true this is the only reliable approach.
-  // Multi-line prompts are safe here because shell:true on Windows uses cmd.exe
-  // and the escapeArg function quotes args containing special characters.
-  args.push("--", opts.prompt);
+  // Collapse newlines to spaces: cmd.exe double-quoted strings cannot span
+  // multiple lines, and LLMs handle single-line prompts identically.
+  const singleLinePrompt = opts.prompt.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+  args.push("--", singleLinePrompt);
 
   // On Windows, claude is a native .exe — must use shell:true so PATH is resolved.
   // Build the full command string and pass empty spawnArgs.
