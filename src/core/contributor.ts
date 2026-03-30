@@ -58,6 +58,8 @@ export async function executeContribution(
       model: config.general.claude_model,
       allowedTools: ["Read", "Edit", "Bash", "Glob", "Grep"],
       timeout: 600_000,
+      repo: repoConfig.name,
+      phase: "contribute",
     });
 
     if (!claudeResult.success) {
@@ -97,6 +99,8 @@ export async function executeContribution(
       cwd: workspace.localPath,
       outputFormat: "json",
       model: config.general.claude_model,
+      repo: repoConfig.name,
+      phase: "pr-description",
     });
 
     let prTitle = commitMsg;

@@ -8,3 +8,4 @@ data/
 contribot.toml
 .env
 .claude/
+CLAUDE.md

@@ -73,6 +73,8 @@ export async function scanRepo(
         cwd: workspace.localPath,
         outputFormat: "json",
         model: config.general.claude_model,
+        repo: repoConfig.name,
+        phase: "scan:issues",
       });
 
       if (result.success) {
@@ -97,6 +99,8 @@ export async function scanRepo(
         outputFormat: "json",
         model: config.general.claude_model,
         allowedTools: ["Read", "Glob", "Grep"],
+        repo: repoConfig.name,
+        phase: "scan:codebase",
       });
 
       if (result.success) {

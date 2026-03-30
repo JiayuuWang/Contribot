@@ -338,6 +338,8 @@ export function layoutTemplate(title: string, content: string, activePage = "ove
     /* Section spacing */
     .section { margin-bottom: 24px; }
 
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
     /* Responsive */
     @media (max-width: 768px) {
       .sidebar { display: none; }
@@ -373,22 +375,44 @@ export function layoutTemplate(title: string, content: string, activePage = "ove
       <div class="sidebar-section">Repositories</div>
     </div>
 
-    <div class="sidebar-footer">Contribot v0.1.0</div>
-  </nav>
+    <div class="sidebar-footer">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span id="sidebar-live-dot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#555"></span>
+          <span id="sidebar-live-label" style="font-size:11px">Checking…</span>
+        </div>
+        Contribot v0.1.0
+      </div>
+    </nav>
 
-  <div class="main">
-    ${content}
-  </div>
+    <div class="main">
+      ${content}
+    </div>
 
-  <script>
-    // Auto-scroll log container
-    function scrollLog() {
-      const el = document.querySelector('.log-container');
-      if (el) el.scrollTop = el.scrollHeight;
-    }
-    // SSE append handler
-    document.body.addEventListener('htmx:sseMessage', scrollLog);
-  </script>
+    <script>
+      // Sidebar live status dot
+      async function updateSidebarStatus() {
+        try {
+          const res = await fetch('/api/status');
+          const d = await res.json();
+          const dot = document.getElementById('sidebar-live-dot');
+          const lbl = document.getElementById('sidebar-live-label');
+          const n = d.activeTasks ?? 0;
+          if (n > 0) {
+            dot.style.background = '#10a37f';
+            dot.style.animation = 'pulse 1.5s ease-in-out infinite';
+            lbl.textContent = n + ' repo' + (n > 1 ? 's' : '') + ' working';
+          } else {
+            dot.style.background = '#555';
+            dot.style.animation = '';
+            lbl.textContent = 'Idle';
+          }
+        } catch(e) {
+          document.getElementById('sidebar-live-label').textContent = 'Offline';
+        }
+      }
+      updateSidebarStatus();
+      setInterval(updateSidebarStatus, 5000);
+    </script>
 </body>
 </html>`;
 }

@@ -74,3 +74,20 @@ export const settings = sqliteTable("settings", {
   value: text("value").notNull(),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
+
+export const activityLogs = sqliteTable("activity_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  timestamp: text("timestamp").notNull(),
+  level: text("level").notNull(), // info|warn|error|debug
+  source: text("source").notNull(),
+  repo: text("repo"),
+  message: text("message").notNull(),
+});
+
+export const repoStatus = sqliteTable("repo_status", {
+  repoFullName: text("repo_full_name").primaryKey(),
+  phase: text("phase").notNull().default("idle"), // idle|scanning|planning|contributing|pr-description|issue-creating
+  currentTask: text("current_task"),               // human-readable description
+  claudePhase: text("claude_phase"),               // phase passed to invokeClaude
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});

@@ -2,8 +2,8 @@ import cron from "node-cron";
 import PQueue from "p-queue";
 import { type ContribotConfig, type RepoConfig, syncReposToDb } from "../config.js";
 import { getDb } from "../db/connection.js";
-import { repos, taskQueue } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { repos, activityLogs, repoStatus } from "../db/schema.js";
+import { eq } from "drizzle-orm";
 import { setupWorkspace } from "../git/repo-manager.js";
 import { scanRepo, type ScanResult } from "./scanner.js";
 import { planContributions, countTodaysPRs, type ContributionPlan } from "./planner.js";
@@ -11,7 +11,7 @@ import { executeContribution } from "./contributor.js";
 import { proposeAndCreateIssues } from "./issue-creator.js";
 import { getAuthenticatedUser } from "../github/gh-cli.js";
 import { logger } from "../utils/logger.js";
-import { activityLog } from "../utils/activity-log.js";
+import { activityLog, initActivityLogDb } from "../utils/activity-log.js";
 
 export interface OrchestratorOptions {
   once?: boolean;
@@ -39,6 +39,31 @@ export class Orchestrator {
     this.queue = new PQueue({
       concurrency: config.general.max_concurrent_repos,
     });
+
+    // Wire activityLog → SQLite so logs are visible cross-process (dashboard reads DB)
+    initActivityLogDb(
+      (level, source, repo, message) => {
+        this.db.insert(activityLogs).values({
+          timestamp: new Date().toISOString(),
+          level,
+          source,
+          repo,
+          message: message.slice(0, 2000),
+        }).run();
+      },
+      (repo, phase, currentTask, claudePhase) => {
+        this.db.insert(repoStatus).values({
+          repoFullName: repo,
+          phase,
+          currentTask,
+          claudePhase,
+          updatedAt: new Date().toISOString(),
+        }).onConflictDoUpdate({
+          target: repoStatus.repoFullName,
+          set: { phase, currentTask, claudePhase, updatedAt: new Date().toISOString() },
+        }).run();
+      }
+    );
   }
 
   async start(): Promise<void> {
@@ -54,12 +79,6 @@ export class Orchestrator {
       logger.info({ username: this.username }, "Detected GitHub user");
       activityLog.info("orchestrator", `GitHub user: ${this.username}`);
     }
-
-    // Mark interrupted tasks from previous run
-    await this.db
-      .update(taskQueue)
-      .set({ status: "interrupted" })
-      .where(eq(taskQueue.status, "in_progress"));
 
     if (this.opts.once) {
       await this.runCycle();
@@ -100,15 +119,8 @@ export class Orchestrator {
       this.cronJob = null;
     }
 
-    // Wait for current queue to drain (with timeout)
     this.queue.pause();
     this.queue.clear();
-
-    // Mark in-progress tasks as interrupted
-    await this.db
-      .update(taskQueue)
-      .set({ status: "interrupted" })
-      .where(eq(taskQueue.status, "in_progress"));
 
     logger.info("Orchestrator stopped");
   }
@@ -126,6 +138,7 @@ export class Orchestrator {
 
     if (filteredRepos.length === 0) {
       logger.warn("No repos to process");
+      activityLog.warn("orchestrator", "No repos to process — add [[repos]] to contribot.toml");
       return;
     }
 
@@ -141,6 +154,7 @@ export class Orchestrator {
 
     await Promise.allSettled(promises);
     logger.info("Scan cycle complete");
+    activityLog.info("orchestrator", "Scan cycle complete");
   }
 
   private async processRepo(
@@ -155,71 +169,84 @@ export class Orchestrator {
       enabled: repoRow.enabled,
     };
 
-    logger.info({ repo: repoConfig.name }, "Processing repo");
-    activityLog.info("orchestrator", `Processing repo`, repoConfig.name);
+    const repo = repoConfig.name;
+    logger.info({ repo }, "Processing repo");
+    activityLog.info("orchestrator", "Processing repo", repo);
+    this.setRepoStatus(repo, "scanning", "Setting up workspace");
 
     try {
-      // 1. Setup workspace (fork + clone + sync)
+      // 1. Setup workspace
+      activityLog.info("orchestrator", "Setting up workspace (fork + clone + sync)", repo);
       const workspace = await setupWorkspace(
         repoConfig.name,
         this.config.general.workspaces_dir,
         this.username
       );
 
-      // Update local path in DB
       await this.db
         .update(repos)
         .set({ localPath: workspace.localPath, forkCreated: true })
         .where(eq(repos.id, repoRow.id));
 
       // 2. Scan
-      const scanResult = await scanRepo(
-        repoConfig,
-        repoRow.id,
-        workspace,
-        this.config
-      );
+      this.setRepoStatus(repo, "scanning", "Scanning issues and codebase");
+      activityLog.info("orchestrator", "Scanning issues and codebase", repo);
+      const scanResult = await scanRepo(repoConfig, repoRow.id, workspace, this.config);
+      activityLog.info("orchestrator",
+        `Scan complete: ${scanResult.issues.length} issues, ${scanResult.opportunities.length} opportunities`, repo);
 
       // 3. Plan
+      this.setRepoStatus(repo, "planning", "Planning contributions");
       const todaysPRs = await countTodaysPRs(repoRow.id, this.config.general.db_path);
       const plans = planContributions(scanResult, repoConfig, todaysPRs);
+      activityLog.info("orchestrator", `Planned ${plans.length} contributions (${todaysPRs} PRs today, limit ${repoConfig.max_prs_per_day})`, repo);
 
       // 4. Execute contributions
       for (const plan of plans) {
         if (!this.running) break;
+        this.setRepoStatus(repo, "contributing", plan.description.split("\n")[0].slice(0, 80));
+        activityLog.info("orchestrator", `Contributing: ${plan.branchName}`, repo);
 
         const result = await executeContribution(
-          plan,
-          repoConfig,
-          repoRow.id,
-          workspace,
-          this.config,
-          this.opts.dryRun
+          plan, repoConfig, repoRow.id, workspace, this.config, this.opts.dryRun
         );
 
         if (result.success) {
-          logger.info(
-            { repo: repoConfig.name, pr: result.prUrl },
-            "Contribution succeeded"
-          );
+          activityLog.info("orchestrator", `PR created: ${result.prUrl}`, repo);
+          logger.info({ repo, pr: result.prUrl }, "Contribution succeeded");
         } else {
-          logger.warn(
-            { repo: repoConfig.name, error: result.error },
-            "Contribution failed"
-          );
+          activityLog.warn("orchestrator", `Contribution failed: ${result.error}`, repo);
+          logger.warn({ repo, error: result.error }, "Contribution failed");
         }
       }
 
       // 5. Optionally create issues
-      await proposeAndCreateIssues(
-        repoConfig,
-        repoRow.id,
-        workspace,
-        this.config,
-        this.opts.dryRun
-      );
+      if (!this.opts.dryRun) {
+        this.setRepoStatus(repo, "issue-creating", "Proposing new issues");
+      }
+      await proposeAndCreateIssues(repoConfig, repoRow.id, workspace, this.config, this.opts.dryRun);
+
+      this.setRepoStatus(repo, "idle");
+      activityLog.info("orchestrator", "Repo processing complete", repo);
     } catch (err: any) {
-      logger.error({ err, repo: repoConfig.name }, "Failed to process repo");
+      logger.error({ err, repo }, "Failed to process repo");
+      activityLog.error("orchestrator", `Failed: ${err.message}`, repo);
+      this.setRepoStatus(repo, "idle", `Last error: ${err.message?.slice(0, 80)}`);
     }
+  }
+
+  private setRepoStatus(repo: string, phase: string, currentTask?: string, claudePhase?: string) {
+    try {
+      this.db.insert(repoStatus).values({
+        repoFullName: repo,
+        phase,
+        currentTask,
+        claudePhase,
+        updatedAt: new Date().toISOString(),
+      }).onConflictDoUpdate({
+        target: repoStatus.repoFullName,
+        set: { phase, currentTask, claudePhase, updatedAt: new Date().toISOString() },
+      }).run();
+    } catch { /* ignore */ }
   }
 }

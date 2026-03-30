@@ -1,27 +1,45 @@
 import { type FastifyInstance } from "fastify";
 import { type ContribotConfig } from "../config.js";
 import { getDb } from "../db/connection.js";
-import { repos, contributions, scans, taskQueue } from "../db/schema.js";
-import { desc, eq, sql } from "drizzle-orm";
+import { repos, contributions, scans, activityLogs, repoStatus } from "../db/schema.js";
+import { desc, eq, sql, and, gte, gt } from "drizzle-orm";
 import { layoutTemplate } from "./templates/layout.js";
 import { overviewTemplate } from "./templates/overview.js";
 import { repoDetailTemplate } from "./templates/repo-detail.js";
 import { historyTemplate } from "./templates/history.js";
 import { logsTemplate, formatLogEntry } from "./templates/logs.js";
 import { activityLog } from "../utils/activity-log.js";
+import type { LogEntry } from "../utils/activity-log.js";
 
 export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
   const getDbInstance = () => getDb(config.general.db_path);
 
-  // Inject repo links into sidebar dynamically
+  // Read recent logs from DB (cross-process safe)
+  async function getLogsFromDb(limit = 200, afterId = 0): Promise<LogEntry[]> {
+    const db = getDbInstance();
+    const rows = afterId > 0
+      ? await db.select().from(activityLogs).where(gt(activityLogs.id, afterId)).orderBy(activityLogs.id).limit(limit)
+      : await db.select().from(activityLogs).orderBy(desc(activityLogs.id)).limit(limit);
+
+    const entries = rows.map((r) => ({
+      id: r.id,
+      timestamp: r.timestamp,
+      level: r.level as LogEntry["level"],
+      source: r.source,
+      repo: r.repo ?? undefined,
+      message: r.message,
+    }));
+
+    // If afterId query, keep ascending order; otherwise reverse to get oldest-first
+    return afterId > 0 ? entries : entries.reverse();
+  }
+
   async function renderPage(title: string, content: string, activePage: string) {
     const db = getDbInstance();
     const allRepos = await db.select().from(repos);
 
-    // Build sidebar with repo links
     let html = layoutTemplate(title, content, activePage);
 
-    // Inject repo links before sidebar-footer
     const repoLinks = allRepos
       .map(
         (r) =>
@@ -45,8 +63,6 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
   app.get("/", async (_, reply) => {
     const db = getDbInstance();
     const allRepos = await db.select().from(repos);
-    const activeTasks = await db.select().from(taskQueue).where(eq(taskQueue.status, "in_progress"));
-    const pendingTasks = await db.select().from(taskQueue).where(eq(taskQueue.status, "pending"));
     const totalContribs = await db.select({ count: sql<number>`count(*)` }).from(contributions);
     const successPRs = await db
       .select({ count: sql<number>`count(*)` })
@@ -62,20 +78,47 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
         status: contributions.status,
         title: contributions.title,
         prUrl: contributions.prUrl,
+        claudeCostUsd: contributions.claudeCostUsd,
         startedAt: contributions.startedAt,
+        completedAt: contributions.completedAt,
       })
       .from(contributions)
       .innerJoin(repos, eq(contributions.repoId, repos.id))
       .orderBy(desc(contributions.createdAt))
       .limit(10);
 
+    // Today's PRs per repo
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayPRs = await db
+      .select({ repoId: contributions.repoId, count: sql<number>`count(*)` })
+      .from(contributions)
+      .where(
+        and(
+          sql`${contributions.status} IN ('pr_created', 'merged')`,
+          gte(contributions.startedAt, todayStart.toISOString())
+        )
+      )
+      .groupBy(contributions.repoId);
+    const todayPRMap = new Map(todayPRs.map((r) => [r.repoId, r.count]));
+
+    // Repo status from DB
+    const repoStatuses = await db.select().from(repoStatus);
+    const repoStatusMap = new Map(repoStatuses.map((s) => [s.repoFullName, s]));
+
+    // Active instances from in-memory (same process) + DB repo_status for cross-process
+    const activeInstances = activityLog.getActiveInstances();
+    const activeCount = repoStatuses.filter((s) => s.phase !== "idle").length;
+
     const content = overviewTemplate({
       repos: allRepos,
-      activeTasks: activeTasks.length,
-      pendingTasks: pendingTasks.length,
       totalContributions: totalContribs[0]?.count ?? 0,
       successfulPRs: successPRs[0]?.count ?? 0,
       recentContributions: recentContribs,
+      activeInstances,
+      todayPRMap,
+      repoStatusMap,
+      activeCount,
     });
 
     const html = await renderPage("Contribot Dashboard", content, "overview");
@@ -98,7 +141,7 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
       .from(contributions)
       .where(eq(contributions.repoId, repo[0].id))
       .orderBy(desc(contributions.createdAt))
-      .limit(30);
+      .limit(50);
 
     const repoScans = await db
       .select()
@@ -107,10 +150,15 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
       .orderBy(desc(scans.startedAt))
       .limit(15);
 
+    const claudeHistory = activityLog.getClaudeHistory(50).filter((c) => c.repo === fullName);
+    const status = await db.select().from(repoStatus).where(eq(repoStatus.repoFullName, fullName)).limit(1);
+
     const content = repoDetailTemplate({
       repo: repo[0],
       contributions: repoContribs,
       scans: repoScans,
+      claudeHistory,
+      currentStatus: status[0] ?? null,
     });
 
     const html = await renderPage(`${fullName} - Contribot`, content, `repo:${fullName}`);
@@ -131,6 +179,7 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
         status: contributions.status,
         title: contributions.title,
         prUrl: contributions.prUrl,
+        claudeCostUsd: contributions.claudeCostUsd,
         startedAt: contributions.startedAt,
         completedAt: contributions.completedAt,
         errorMessage: contributions.errorMessage,
@@ -147,14 +196,14 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
   });
 
   app.get("/logs", async (_, reply) => {
-    const recentLogs = activityLog.getRecent(100);
-    const content = logsTemplate(recentLogs);
+    const recentLogs = await getLogsFromDb(200);
+    const lastId = recentLogs.length > 0 ? recentLogs[recentLogs.length - 1].id : 0;
+    const content = logsTemplate(recentLogs, lastId);
     const html = await renderPage("Live Logs - Contribot", content, "logs");
     reply.type("text/html").send(html);
   });
 
-  // === SSE endpoint for live logs ===
-
+  // === SSE endpoint — polls DB for new log rows ===
   app.get("/api/logs/stream", async (req, reply) => {
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -162,23 +211,59 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
       Connection: "keep-alive",
     });
 
-    const onEntry = (entry: any) => {
-      const html = formatLogEntry(entry);
-      reply.raw.write(`event: log\ndata: ${html.replace(/\n/g, "")}\n\n`);
-    };
-
-    activityLog.on("entry", onEntry);
-
-    // Send initial keepalive
     reply.raw.write(": connected\n\n");
 
-    // Heartbeat every 15s
+    // Start from the latest id in DB
+    const db = getDbInstance();
+    const latest = await db.select({ id: activityLogs.id }).from(activityLogs).orderBy(desc(activityLogs.id)).limit(1);
+    let lastId = latest[0]?.id ?? 0;
+
+    // Also listen to in-process events (same-process case: pnpm dev run --dashboard)
+    const onEntry = (entry: LogEntry) => {
+      const html = formatLogEntry(entry);
+      const data = html.replace(/\r?\n/g, "");
+      reply.raw.write(`event: log\ndata: ${data}\n\n`);
+      if (entry.id > lastId) lastId = entry.id;
+    };
+    activityLog.on("entry", onEntry);
+
+    // Poll DB every 2s for new rows (handles cross-process case)
+    const pollTimer = setInterval(async () => {
+      try {
+        const newRows = await db
+          .select()
+          .from(activityLogs)
+          .where(gt(activityLogs.id, lastId))
+          .orderBy(activityLogs.id)
+          .limit(50);
+
+        for (const row of newRows) {
+          // Skip if already sent via in-process event
+          if (row.id <= lastId) continue;
+          lastId = row.id;
+          const entry: LogEntry = {
+            id: row.id,
+            timestamp: row.timestamp,
+            level: row.level as LogEntry["level"],
+            source: row.source,
+            repo: row.repo ?? undefined,
+            message: row.message,
+          };
+          const html = formatLogEntry(entry);
+          const data = html.replace(/\r?\n/g, "");
+          reply.raw.write(`event: log\ndata: ${data}\n\n`);
+        }
+      } catch { /* DB may not be ready */ }
+    }, 2000);
+
+    // Heartbeat
     const heartbeat = setInterval(() => {
       reply.raw.write(": heartbeat\n\n");
     }, 15000);
 
     req.raw.on("close", () => {
       activityLog.off("entry", onEntry);
+      clearInterval(pollTimer);
       clearInterval(heartbeat);
     });
   });
@@ -188,14 +273,22 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
   app.get("/api/status", async () => {
     const db = getDbInstance();
     const allRepos = await db.select().from(repos);
-    const activeTasks = await db.select().from(taskQueue).where(eq(taskQueue.status, "in_progress"));
-    const pendingTasks = await db.select().from(taskQueue).where(eq(taskQueue.status, "pending"));
+    const repoStatuses = await db.select().from(repoStatus);
+    const activeRepos = repoStatuses.filter((s) => s.phase !== "idle");
+    const totalContribs = await db.select({ count: sql<number>`count(*)` }).from(contributions);
+    const successPRs = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(contributions)
+      .where(sql`${contributions.status} IN ('pr_created', 'merged')`);
 
     return {
       repos: allRepos.length,
       enabledRepos: allRepos.filter((r) => r.enabled).length,
-      activeTasks: activeTasks.length,
-      pendingTasks: pendingTasks.length,
+      activeTasks: activeRepos.length,
+      pendingTasks: 0,
+      totalContributions: totalContribs[0]?.count ?? 0,
+      successfulPRs: successPRs[0]?.count ?? 0,
+      activeInstances: activityLog.getActiveInstances().length,
     };
   });
 
@@ -207,7 +300,6 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
   app.get("/api/contributions", async (req) => {
     const db = getDbInstance();
     const limit = parseInt((req.query as any).limit ?? "50", 10);
-
     return db
       .select({
         id: contributions.id,
@@ -216,6 +308,7 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
         status: contributions.status,
         title: contributions.title,
         prUrl: contributions.prUrl,
+        claudeCostUsd: contributions.claudeCostUsd,
         startedAt: contributions.startedAt,
         completedAt: contributions.completedAt,
       })
@@ -227,31 +320,46 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
 
   app.get("/api/logs", async (req) => {
     const afterId = parseInt((req.query as any).after ?? "0", 10);
-    return activityLog.getRecent(50, afterId);
+    return getLogsFromDb(50, afterId);
+  });
+
+  app.get("/api/claude/instances", async () => {
+    const db = getDbInstance();
+    // In-process active instances
+    const inProcessActive = activityLog.getActiveInstances();
+    // Cross-process: repo_status rows that are not idle
+    const dbActive = await db.select().from(repoStatus).where(sql`${repoStatus.phase} != 'idle'`);
+
+    return {
+      active: inProcessActive,
+      dbActive,
+      history: activityLog.getClaudeHistory(30),
+    };
+  });
+
+  app.get("/api/repo-status", async () => {
+    const db = getDbInstance();
+    return db.select().from(repoStatus);
   });
 
   // === Partials for htmx polling ===
 
   app.get("/partials/stats", async (_, reply) => {
     const db = getDbInstance();
-    const activeTasks = await db.select().from(taskQueue).where(eq(taskQueue.status, "in_progress"));
-    const pendingTasks = await db.select().from(taskQueue).where(eq(taskQueue.status, "pending"));
+    const repoStatuses = await db.select().from(repoStatus);
+    const activeRepos = repoStatuses.filter((s) => s.phase !== "idle");
     const totalContribs = await db.select({ count: sql<number>`count(*)` }).from(contributions);
     const successPRs = await db
       .select({ count: sql<number>`count(*)` })
       .from(contributions)
       .where(sql`${contributions.status} IN ('pr_created', 'merged')`);
+    const activeInstances = activityLog.getActiveInstances();
 
     reply.type("text/html").send(`
       <div class="stat-card">
-        <div class="stat-label">Active Tasks</div>
-        <div class="stat-value">${activeTasks.length}</div>
-        <div class="stat-sub">Currently running</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Pending Tasks</div>
-        <div class="stat-value">${pendingTasks.length}</div>
-        <div class="stat-sub">In queue</div>
+        <div class="stat-label">Active Repos</div>
+        <div class="stat-value" style="color:${activeRepos.length > 0 ? "var(--accent)" : "inherit"}">${activeRepos.length}</div>
+        <div class="stat-sub">Currently working</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Total Contributions</div>
@@ -263,10 +371,91 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
         <div class="stat-value">${successPRs[0]?.count ?? 0}</div>
         <div class="stat-sub">Created or merged</div>
       </div>
+      <div class="stat-card">
+        <div class="stat-label">Claude Instances</div>
+        <div class="stat-value" style="color:${activeInstances.length > 0 ? "var(--accent)" : "inherit"}">${activeInstances.length}</div>
+        <div class="stat-sub">Running now</div>
+      </div>
     `);
   });
 
   app.get("/partials/clock", async (_, reply) => {
     reply.type("text/html").send(new Date().toLocaleTimeString());
   });
+
+  app.get("/partials/repo-status", async (_, reply) => {
+    const db = getDbInstance();
+    const statuses = await db.select().from(repoStatus);
+    const active = statuses.filter((s) => s.phase !== "idle");
+
+    if (active.length === 0) {
+      reply.type("text/html").send(`<div class="empty-state" style="padding:16px"><p>Orchestrator idle — no active work</p></div>`);
+      return;
+    }
+
+    const rows = active.map((s) => {
+      const elapsed = Math.round((Date.now() - new Date(s.updatedAt).getTime()) / 1000);
+      const elapsedStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
+      return `<div class="instance-row">
+        <span class="pulse"></span>
+        <span class="instance-repo">${escapeHtml(s.repoFullName)}</span>
+        <span class="instance-phase">${escapeHtml(s.phase)}</span>
+        <span class="instance-prompt">${escapeHtml(s.currentTask ?? "")}</span>
+        <span class="instance-elapsed">${elapsedStr} ago</span>
+      </div>`;
+    }).join("");
+
+    reply.type("text/html").send(rows);
+  });
+
+  app.get("/partials/recent-contribs", async (_, reply) => {
+    const db = getDbInstance();
+    const recentContribs = await db
+      .select({
+        id: contributions.id,
+        repoName: repos.fullName,
+        type: contributions.type,
+        status: contributions.status,
+        title: contributions.title,
+        prUrl: contributions.prUrl,
+        claudeCostUsd: contributions.claudeCostUsd,
+        startedAt: contributions.startedAt,
+        completedAt: contributions.completedAt,
+      })
+      .from(contributions)
+      .innerJoin(repos, eq(contributions.repoId, repos.id))
+      .orderBy(desc(contributions.createdAt))
+      .limit(10);
+
+    const rows = recentContribs.map((c) => contribRow(c)).join("");
+    reply.type("text/html").send(
+      rows || `<tr><td colspan="6" style="text-align:center;color:var(--text-tertiary);padding:24px">No contributions yet</td></tr>`
+    );
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function contribRow(c: any): string {
+  const statusMap: Record<string, string> = {
+    pr_created: "badge-success", merged: "badge-success", completed: "badge-success",
+    failed: "badge-danger", interrupted: "badge-danger",
+    coding: "badge-info", scanning: "badge-info", pushing: "badge-info", in_progress: "badge-info",
+    pending: "badge-warning", planning: "badge-warning",
+  };
+  const badge = `<span class="badge ${statusMap[c.status] ?? "badge-neutral"}">${c.status}</span>`;
+  const cost = c.claudeCostUsd != null ? `<span style="color:var(--text-tertiary);font-size:11px">$${Number(c.claudeCostUsd).toFixed(4)}</span>` : "";
+  const duration = c.startedAt && c.completedAt
+    ? `<span style="color:var(--text-tertiary);font-size:11px">${Math.round((new Date(c.completedAt).getTime() - new Date(c.startedAt).getTime()) / 1000)}s</span>`
+    : "";
+  return `<tr>
+    <td><a href="/repo/${c.repoName}">${escapeHtml(c.repoName)}</a></td>
+    <td><span class="badge badge-neutral">${c.type}</span></td>
+    <td>${badge}</td>
+    <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(c.title ?? "-")}</td>
+    <td>${c.prUrl ? `<a href="${c.prUrl}" target="_blank" class="btn btn-sm">View PR</a>` : "-"}</td>
+    <td>${cost} ${duration}</td>
+  </tr>`;
 }

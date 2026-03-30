@@ -88,6 +88,23 @@ export function getDb(dbPath: string = "./data/contribot.db") {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      level TEXT NOT NULL,
+      source TEXT NOT NULL,
+      repo TEXT,
+      message TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS repo_status (
+      repo_full_name TEXT PRIMARY KEY,
+      phase TEXT NOT NULL DEFAULT 'idle',
+      current_task TEXT,
+      claude_phase TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   db = drizzle(sqlite, { schema });
