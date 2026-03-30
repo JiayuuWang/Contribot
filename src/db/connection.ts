@@ -105,6 +105,29 @@ export function getDb(dbPath: string = "./data/contribot.db") {
       claude_phase TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS claude_instances (
+      id TEXT PRIMARY KEY,
+      repo TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      duration_ms INTEGER,
+      success INTEGER,
+      error TEXT,
+      cost_usd REAL
+    );
+
+    CREATE TABLE IF NOT EXISTS claude_output (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      instance_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      stream TEXT NOT NULL,
+      line TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_claude_output_instance ON claude_output(instance_id);
   `);
 
   db = drizzle(sqlite, { schema });

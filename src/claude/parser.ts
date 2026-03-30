@@ -21,35 +21,47 @@ export interface PRDescription {
   body: string;
 }
 
-export function parseIssueAnalysis(output: string): AnalyzedIssue[] {
+export interface RepoAnalysis {
+  issues: AnalyzedIssue[];
+  opportunities: CodeOpportunity[];
+}
+
+/**
+ * Parse the unified repo analysis output containing both issues and opportunities.
+ */
+export function parseRepoAnalysis(output: string): RepoAnalysis {
   try {
     const parsed = extractJson(output);
-    if (Array.isArray(parsed)) {
-      return parsed.filter(
-        (item) =>
-          item.number &&
-          item.feasibility &&
-          ["easy", "medium"].includes(item.feasibility)
-      );
-    }
+
+    const issues = Array.isArray(parsed?.issues)
+      ? parsed.issues.filter(
+          (item: any) =>
+            item.number &&
+            item.feasibility &&
+            ["easy", "medium"].includes(item.feasibility)
+        )
+      : [];
+
+    const opportunities = Array.isArray(parsed?.opportunities)
+      ? parsed.opportunities.filter(
+          (item: any) => item.type && item.description && item.confidence
+        )
+      : [];
+
+    return { issues, opportunities };
   } catch (err) {
-    logger.error({ err, output: output.slice(0, 200) }, "Failed to parse issue analysis");
+    logger.error({ err, output: output.slice(0, 200) }, "Failed to parse repo analysis");
+    return { issues: [], opportunities: [] };
   }
-  return [];
+}
+
+// Legacy functions — kept for backward compatibility
+export function parseIssueAnalysis(output: string): AnalyzedIssue[] {
+  return parseRepoAnalysis(output).issues;
 }
 
 export function parseCodebaseScan(output: string): CodeOpportunity[] {
-  try {
-    const parsed = extractJson(output);
-    if (Array.isArray(parsed)) {
-      return parsed.filter(
-        (item) => item.type && item.description && item.confidence
-      );
-    }
-  } catch (err) {
-    logger.error({ err, output: output.slice(0, 200) }, "Failed to parse codebase scan");
-  }
-  return [];
+  return parseRepoAnalysis(output).opportunities;
 }
 
 export function parsePRDescription(output: string): PRDescription | null {

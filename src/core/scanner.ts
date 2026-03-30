@@ -1,19 +1,15 @@
 import { type ContribotConfig, type RepoConfig } from "../config.js";
-import { setupWorkspace, type GitWorkspace } from "../git/repo-manager.js";
+import { type GitWorkspace } from "../git/repo-manager.js";
 import { listIssues, type Issue } from "../github/issues.js";
 import { listMyPRs } from "../github/prs.js";
 import { invokeClaude } from "../claude/bridge.js";
-import { issueAnalysisPrompt, codebaseScanPrompt } from "../claude/prompts.js";
-import {
-  parseIssueAnalysis,
-  parseCodebaseScan,
-  type AnalyzedIssue,
-  type CodeOpportunity,
-} from "../claude/parser.js";
+import { repoAnalysisPrompt } from "../claude/prompts.js";
+import { parseRepoAnalysis, type AnalyzedIssue, type CodeOpportunity } from "../claude/parser.js";
 import { getDb } from "../db/connection.js";
 import { scans, repos } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { logger } from "../utils/logger.js";
+import { activityLog } from "../utils/activity-log.js";
 
 export interface ScanResult {
   repoId: number;
@@ -38,78 +34,67 @@ export async function scanRepo(
   }).returning();
 
   try {
-    // 1. Fetch open issues (empty labels = no label filter, fetch all)
-    const rawIssues = await listIssues(repoConfig.name, repoConfig.issue_labels);
-    logger.info({ repo: repoConfig.name, count: rawIssues.length }, "Fetched issues");
+    // 1. Optionally fetch open issues (best-effort, not required)
+    let candidateIssues: Issue[] = [];
+    try {
+      const rawIssues = await listIssues(repoConfig.name, repoConfig.issue_labels);
+      logger.info({ repo: repoConfig.name, count: rawIssues.length }, "Fetched issues");
 
-    // 2. Filter out issues we already have PRs for
-    const myPRs = await listMyPRs(repoConfig.name);
-    const prBranches = new Set(myPRs.map((pr) => pr.headRefName));
-    const openIssueNumbers = new Set(
-      myPRs
-        .filter((pr) => pr.state === "OPEN")
-        .map((pr) => {
-          const match = pr.headRefName.match(/issue-(\d+)/);
-          return match ? parseInt(match[1], 10) : null;
-        })
-        .filter(Boolean)
-    );
-
-    const candidateIssues = rawIssues.filter(
-      (issue) => !openIssueNumbers.has(issue.number)
-    );
-
-    // 3. Ask Claude to analyze issues
-    let analyzedIssues: AnalyzedIssue[] = [];
-    if (candidateIssues.length > 0) {
-      const prompt = issueAnalysisPrompt(
-        candidateIssues.slice(0, 10), // Limit to 10 for cost
-        repoConfig.name,
-        repoConfig.focus
+      // Filter out issues we already have PRs for
+      const myPRs = await listMyPRs(repoConfig.name);
+      const openIssueNumbers = new Set(
+        myPRs
+          .filter((pr) => pr.state === "OPEN")
+          .map((pr) => {
+            const match = pr.headRefName.match(/issue-(\d+)/);
+            return match ? parseInt(match[1], 10) : null;
+          })
+          .filter(Boolean)
       );
 
-      const result = await invokeClaude({
-        prompt,
-        cwd: workspace.localPath,
-        outputFormat: "json",
-        model: config.general.claude_model,
-        repo: repoConfig.name,
-        phase: "scan:issues",
-      });
-
-      if (result.success) {
-        analyzedIssues = parseIssueAnalysis(result.output);
-        logger.info({ count: analyzedIssues.length }, "Analyzed issues");
-      }
+      candidateIssues = rawIssues.filter(
+        (issue) => !openIssueNumbers.has(issue.number)
+      );
+    } catch (err: any) {
+      // Issues are optional — log and continue
+      logger.warn({ repo: repoConfig.name, err: err.message }, "Failed to fetch issues, continuing without them");
+      activityLog.warn("scanner", `Issue fetch failed (non-fatal): ${err.message}`, repoConfig.name);
     }
 
-    // 4. Scan codebase for opportunities
-    //    Empty focus = scan all areas; otherwise only scan specified areas
+    // 2. Single Claude call: analyze repo + issues together
+    activityLog.info("scanner", `Analyzing repo (${candidateIssues.length} issues available)`, repoConfig.name);
+
+    const prompt = repoAnalysisPrompt(
+      repoConfig.name,
+      repoConfig.focus,
+      repoConfig.reasons,
+      candidateIssues.slice(0, 10),
+    );
+
+    const result = await invokeClaude({
+      prompt,
+      cwd: workspace.localPath,
+      outputFormat: "json",
+      model: config.general.claude_model,
+      allowedTools: ["Read", "Glob", "Grep"],
+      repo: repoConfig.name,
+      phase: "analyze",
+    });
+
+    let analyzedIssues: AnalyzedIssue[] = [];
     let opportunities: CodeOpportunity[] = [];
-    const codebaseScanAreas = ["tests", "documentation", "refactoring"];
-    const scanFocus = repoConfig.focus.length === 0
-      ? codebaseScanAreas
-      : repoConfig.focus.filter((f) => codebaseScanAreas.includes(f));
 
-    if (scanFocus.length > 0) {
-      const prompt = codebaseScanPrompt(repoConfig.name, scanFocus);
-      const result = await invokeClaude({
-        prompt,
-        cwd: workspace.localPath,
-        outputFormat: "json",
-        model: config.general.claude_model,
-        allowedTools: ["Read", "Glob", "Grep"],
-        repo: repoConfig.name,
-        phase: "scan:codebase",
-      });
-
-      if (result.success) {
-        opportunities = parseCodebaseScan(result.output);
-        logger.info({ count: opportunities.length }, "Found opportunities");
-      }
+    if (result.success) {
+      const parsed = parseRepoAnalysis(result.output);
+      analyzedIssues = parsed.issues;
+      opportunities = parsed.opportunities;
+      logger.info(
+        { issues: analyzedIssues.length, opportunities: opportunities.length },
+        "Analysis complete"
+      );
     }
 
-    // 5. Update scan record
+    // 3. Update scan record
     await db
       .update(scans)
       .set({

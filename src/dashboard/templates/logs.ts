@@ -22,24 +22,25 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
         <label class="filter-label">
           <input id="log-text-filter" class="filter-input" type="text" placeholder="Search text…" />
         </label>
-        <button class="btn btn-sm" id="scroll-lock-btn" title="Toggle auto-scroll">⬇ Auto-scroll</button>
+        <button class="btn btn-sm" id="scroll-lock-btn" title="Toggle auto-scroll">Auto-scroll</button>
         <button class="btn btn-sm" id="clear-btn">Clear</button>
         <span class="badge badge-info" id="sse-status">Connecting…</span>
       </div>
     </div>
 
     <div class="content" style="padding-bottom:0">
-      <!-- Claude instances panel -->
+      <!-- Active Claude Instances with split-screen output -->
       <div class="card section" id="claude-instances-card">
         <div class="card-header">
           <h2>Active Claude Instances</h2>
           <span style="color:var(--text-tertiary);font-size:12px" id="instance-count">Loading…</span>
         </div>
-        <div class="card-body no-pad" id="claude-instances-body">
-          <div class="empty-state"><p>No active Claude instances</p></div>
+        <div id="claude-instances-body">
+          <div class="empty-state" style="padding:16px"><p>No active Claude instances</p></div>
         </div>
       </div>
 
+      <!-- Activity Stream -->
       <div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 330px);min-height:400px">
         <div class="card-header" style="flex-shrink:0">
           <h2>Activity Stream</h2>
@@ -77,6 +78,7 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
       .filter-select:focus, .filter-input:focus { border-color: var(--accent); }
       #scroll-lock-btn.locked { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+      /* Instance rows */
       .instance-row {
         display: flex;
         align-items: center;
@@ -84,8 +86,12 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
         padding: 10px 16px;
         border-bottom: 1px solid var(--border);
         font-size: 13px;
+        cursor: pointer;
+        transition: background 0.1s;
       }
+      .instance-row:hover { background: var(--bg-secondary); }
       .instance-row:last-child { border-bottom: none; }
+      .instance-row.expanded { background: var(--bg-secondary); }
       .instance-phase {
         font-family: 'SF Mono', monospace;
         font-size: 11px;
@@ -100,6 +106,63 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
       .instance-prompt { color: var(--text-secondary); font-size: 12px; overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0; }
       .pulse { display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.5s ease-in-out infinite; }
       @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
+      /* Split-screen panes */
+      .split-panes {
+        display: grid;
+        gap: 0;
+        border-top: 1px solid var(--border);
+      }
+      .split-panes.cols-1 { grid-template-columns: 1fr; }
+      .split-panes.cols-2 { grid-template-columns: 1fr 1fr; }
+      .split-panes.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+      .split-panes.cols-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+      .instance-pane {
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--border);
+        min-height: 0;
+      }
+      .instance-pane:last-child { border-right: none; }
+      .split-panes.cols-4 .instance-pane { border-bottom: 1px solid var(--border); }
+
+      .pane-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border);
+        font-size: 12px;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+      .pane-header .pulse { width: 6px; height: 6px; }
+      .pane-phase {
+        font-family: 'SF Mono', monospace;
+        font-size: 10px;
+        padding: 1px 5px;
+        background: #1a1a2e;
+        color: var(--accent);
+        border-radius: 3px;
+      }
+      .pane-elapsed { color: var(--text-tertiary); margin-left: auto; font-weight: 400; }
+
+      .pane-output {
+        background: #1a1a2e;
+        color: #e0e0e0;
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        font-size: 11px;
+        line-height: 1.6;
+        padding: 8px 12px;
+        overflow-y: auto;
+        flex: 1;
+        min-height: 200px;
+        max-height: 400px;
+      }
+      .pane-output .out-line { color: #e0e0e0; }
+      .pane-output .err-line { color: #f87171; }
     </style>
 
     <script>
@@ -144,20 +207,19 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
       const scrollBtn = document.getElementById('scroll-lock-btn');
       scrollBtn.addEventListener('click', () => {
         autoScroll = !autoScroll;
-        scrollBtn.textContent = autoScroll ? '⬇ Auto-scroll' : '⏸ Paused';
+        scrollBtn.textContent = autoScroll ? 'Auto-scroll' : 'Paused';
         scrollBtn.classList.toggle('locked', autoScroll);
         if (autoScroll) logView.scrollTop = logView.scrollHeight;
       });
-      // Re-enable auto-scroll when user manually scrolls to bottom
       logView.addEventListener('scroll', () => {
         const atBottom = logView.scrollHeight - logView.scrollTop - logView.clientHeight < 40;
         if (atBottom && !autoScroll) {
           autoScroll = true;
-          scrollBtn.textContent = '⬇ Auto-scroll';
+          scrollBtn.textContent = 'Auto-scroll';
           scrollBtn.classList.add('locked');
         } else if (!atBottom && autoScroll) {
           autoScroll = false;
-          scrollBtn.textContent = '⏸ Paused';
+          scrollBtn.textContent = 'Paused';
           scrollBtn.classList.remove('locked');
         }
       });
@@ -195,7 +257,13 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
       repoFilter.addEventListener('input',  reapplyFilters);
       textFilter.addEventListener('input',  reapplyFilters);
 
-      // === Claude instances polling ===
+      // === Claude instances polling + split-screen output ===
+      const outputPollers = new Map(); // instanceId → { timer, lastOutputId }
+
+      function escHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+
       async function refreshInstances() {
         try {
           const res  = await fetch('/api/claude/instances');
@@ -209,20 +277,97 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
             : 'None running';
 
           if (active.length === 0) {
-            body.innerHTML = '<div class="empty-state"><p>No active Claude instances</p></div>';
-          } else {
-            body.innerHTML = active.map(inst => {
-              const elapsed = Math.round((Date.now() - new Date(inst.startedAt).getTime()) / 1000);
-              const elapsedStr = elapsed >= 60 ? Math.floor(elapsed/60) + 'm ' + (elapsed%60) + 's' : elapsed + 's';
-              return \`<div class="instance-row">
-                <span class="pulse"></span>
-                <span class="instance-repo">\${inst.repo}</span>
-                <span class="instance-phase">\${inst.phase}</span>
-                <span class="instance-prompt">\${inst.prompt}</span>
-                <span class="instance-elapsed">\${elapsedStr}</span>
-              </div>\`;
-            }).join('');
+            body.innerHTML = '<div class="empty-state" style="padding:16px"><p>No active Claude instances</p></div>';
+            // Stop all output pollers
+            for (const [id, poller] of outputPollers) {
+              clearInterval(poller.timer);
+            }
+            outputPollers.clear();
+            return;
           }
+
+          // Build instance rows
+          const colsClass = active.length <= 1 ? 'cols-1' : active.length === 2 ? 'cols-2' : active.length === 3 ? 'cols-3' : 'cols-4';
+
+          let html = '';
+          // Instance header rows
+          active.forEach(inst => {
+            const elapsed = Math.round((Date.now() - new Date(inst.startedAt).getTime()) / 1000);
+            const elapsedStr = elapsed >= 60 ? Math.floor(elapsed/60) + 'm ' + (elapsed%60) + 's' : elapsed + 's';
+            html += '<div class="instance-row">' +
+              '<span class="pulse"></span>' +
+              '<span class="instance-repo">' + escHtml(inst.repo) + '</span>' +
+              '<span class="instance-phase">' + escHtml(inst.phase) + '</span>' +
+              '<span class="instance-prompt">' + escHtml(inst.prompt || '') + '</span>' +
+              '<span class="instance-elapsed">' + elapsedStr + '</span>' +
+            '</div>';
+          });
+
+          // Split-screen output panes
+          html += '<div class="split-panes ' + colsClass + '">';
+          active.forEach(inst => {
+            const elapsed = Math.round((Date.now() - new Date(inst.startedAt).getTime()) / 1000);
+            const elapsedStr = elapsed >= 60 ? Math.floor(elapsed/60) + 'm ' + (elapsed%60) + 's' : elapsed + 's';
+            html += '<div class="instance-pane">' +
+              '<div class="pane-header">' +
+                '<span class="pulse"></span>' +
+                '<span>' + escHtml(inst.repo) + '</span>' +
+                '<span class="pane-phase">' + escHtml(inst.phase) + '</span>' +
+                '<span class="pane-elapsed">' + elapsedStr + '</span>' +
+              '</div>' +
+              '<div class="pane-output" id="pane-' + inst.id + '"></div>' +
+            '</div>';
+          });
+          html += '</div>';
+
+          body.innerHTML = html;
+
+          // Setup output pollers for each active instance
+          const activeIds = new Set(active.map(i => i.id));
+
+          // Stop pollers for instances that are no longer active
+          for (const [id, poller] of outputPollers) {
+            if (!activeIds.has(id)) {
+              clearInterval(poller.timer);
+              outputPollers.delete(id);
+            }
+          }
+
+          // Start pollers for new instances
+          for (const inst of active) {
+            if (!outputPollers.has(inst.id)) {
+              const poller = { timer: null, lastOutputId: 0 };
+              poller.timer = setInterval(() => pollInstanceOutput(inst.id, poller), 1000);
+              outputPollers.set(inst.id, poller);
+              // Fetch initial output immediately
+              pollInstanceOutput(inst.id, poller);
+            }
+          }
+        } catch(e) { /* ignore */ }
+      }
+
+      async function pollInstanceOutput(instanceId, poller) {
+        try {
+          const res = await fetch('/api/claude/output/' + instanceId + '?after=' + poller.lastOutputId);
+          const rows = await res.json();
+          if (!rows.length) return;
+
+          const pane = document.getElementById('pane-' + instanceId);
+          if (!pane) return;
+
+          for (const row of rows) {
+            const div = document.createElement('div');
+            div.className = row.stream === 'stderr' ? 'err-line' : 'out-line';
+            div.textContent = row.line;
+            pane.appendChild(div);
+            if (row.id > poller.lastOutputId) poller.lastOutputId = row.id;
+          }
+
+          // Trim to 500 lines
+          while (pane.children.length > 500) pane.removeChild(pane.firstChild);
+
+          // Auto-scroll pane
+          pane.scrollTop = pane.scrollHeight;
         } catch(e) { /* ignore */ }
       }
 

@@ -1,11 +1,10 @@
 import { statusBadge } from "./overview.js";
-import type { ClaudeInstance } from "../../utils/activity-log.js";
 
 interface RepoDetailData {
   repo: any;
   contributions: any[];
   scans: any[];
-  claudeHistory: ClaudeInstance[];
+  claudeHistory: any[];  // DB rows — nullable fields
   currentStatus: any | null;
 }
 

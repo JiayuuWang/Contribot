@@ -91,3 +91,26 @@ export const repoStatus = sqliteTable("repo_status", {
   claudePhase: text("claude_phase"),               // phase passed to invokeClaude
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
+
+// Cross-process Claude instance tracking — written by orchestrator, read by dashboard
+export const claudeInstances = sqliteTable("claude_instances", {
+  id: text("id").primaryKey(),                     // UUID
+  repo: text("repo").notNull(),
+  phase: text("phase").notNull(),
+  prompt: text("prompt").notNull(),                // first 200 chars
+  startedAt: text("started_at").notNull(),
+  endedAt: text("ended_at"),
+  durationMs: integer("duration_ms"),
+  success: integer("success", { mode: "boolean" }),
+  error: text("error"),
+  costUsd: real("cost_usd"),
+});
+
+// Per-instance Claude output lines — streamed to DB for cross-process dashboard
+export const claudeOutput = sqliteTable("claude_output", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  instanceId: text("instance_id").notNull(),       // FK → claude_instances.id
+  timestamp: text("timestamp").notNull(),
+  stream: text("stream").notNull(),                // "stdout" | "stderr"
+  line: text("line").notNull(),
+});

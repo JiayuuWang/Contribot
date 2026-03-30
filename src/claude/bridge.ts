@@ -100,6 +100,9 @@ export async function invokeClaude(opts: ClaudeInvocation): Promise<ClaudeResult
       stdout += chunk;
       const lines = chunk.split("\n").filter((l: string) => l.trim());
       for (const line of lines) {
+        // Full output to per-instance stream (no truncation)
+        activityLog.claudeOutput(instanceId, "stdout", line);
+        // Summary to activity log (truncated for overview)
         activityLog.debug("claude:output", line.slice(0, 200), repoLabel);
       }
     });
@@ -107,6 +110,10 @@ export async function invokeClaude(opts: ClaudeInvocation): Promise<ClaudeResult
     proc.stderr.on("data", (data) => {
       const chunk = data.toString();
       stderr += chunk;
+      const lines = chunk.split("\n").filter((l: string) => l.trim());
+      for (const line of lines) {
+        activityLog.claudeOutput(instanceId, "stderr", line);
+      }
       activityLog.warn("claude:stderr", chunk.slice(0, 200), repoLabel);
     });
 

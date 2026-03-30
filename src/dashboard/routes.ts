@@ -1,7 +1,7 @@
 import { type FastifyInstance } from "fastify";
 import { type ContribotConfig } from "../config.js";
 import { getDb } from "../db/connection.js";
-import { repos, contributions, scans, activityLogs, repoStatus } from "../db/schema.js";
+import { repos, contributions, scans, activityLogs, repoStatus, claudeInstances, claudeOutput } from "../db/schema.js";
 import { desc, eq, sql, and, gte, gt } from "drizzle-orm";
 import { layoutTemplate } from "./templates/layout.js";
 import { overviewTemplate } from "./templates/overview.js";
@@ -106,8 +106,8 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
     const repoStatuses = await db.select().from(repoStatus);
     const repoStatusMap = new Map(repoStatuses.map((s) => [s.repoFullName, s]));
 
-    // Active instances from in-memory (same process) + DB repo_status for cross-process
-    const activeInstances = activityLog.getActiveInstances();
+    // Active instances from DB (cross-process safe)
+    const activeInstancesDb = await db.select().from(claudeInstances).where(sql`${claudeInstances.endedAt} IS NULL`);
     const activeCount = repoStatuses.filter((s) => s.phase !== "idle").length;
 
     const content = overviewTemplate({
@@ -115,7 +115,7 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
       totalContributions: totalContribs[0]?.count ?? 0,
       successfulPRs: successPRs[0]?.count ?? 0,
       recentContributions: recentContribs,
-      activeInstances,
+      activeInstances: activeInstancesDb,
       todayPRMap,
       repoStatusMap,
       activeCount,
@@ -150,7 +150,10 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
       .orderBy(desc(scans.startedAt))
       .limit(15);
 
-    const claudeHistory = activityLog.getClaudeHistory(50).filter((c) => c.repo === fullName);
+    const claudeHistory = await db.select().from(claudeInstances)
+      .where(eq(claudeInstances.repo, fullName))
+      .orderBy(desc(claudeInstances.startedAt))
+      .limit(50);
     const status = await db.select().from(repoStatus).where(eq(repoStatus.repoFullName, fullName)).limit(1);
 
     const content = repoDetailTemplate({
@@ -280,6 +283,9 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
       .select({ count: sql<number>`count(*)` })
       .from(contributions)
       .where(sql`${contributions.status} IN ('pr_created', 'merged')`);
+    const activeInstancesDb = await db.select({ count: sql<number>`count(*)` })
+      .from(claudeInstances)
+      .where(sql`${claudeInstances.endedAt} IS NULL`);
 
     return {
       repos: allRepos.length,
@@ -288,7 +294,7 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
       pendingTasks: 0,
       totalContributions: totalContribs[0]?.count ?? 0,
       successfulPRs: successPRs[0]?.count ?? 0,
-      activeInstances: activityLog.getActiveInstances().length,
+      activeInstances: activeInstancesDb[0]?.count ?? 0,
     };
   });
 
@@ -325,21 +331,43 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
 
   app.get("/api/claude/instances", async () => {
     const db = getDbInstance();
-    // In-process active instances
-    const inProcessActive = activityLog.getActiveInstances();
-    // Cross-process: repo_status rows that are not idle
-    const dbActive = await db.select().from(repoStatus).where(sql`${repoStatus.phase} != 'idle'`);
+    // Cross-process: read active instances from DB (no endedAt = still running)
+    const dbActive = await db.select().from(claudeInstances).where(sql`${claudeInstances.endedAt} IS NULL`);
+    // Recent history: last 30 completed instances
+    const dbHistory = await db.select().from(claudeInstances)
+      .where(sql`${claudeInstances.endedAt} IS NOT NULL`)
+      .orderBy(desc(claudeInstances.endedAt))
+      .limit(30);
 
     return {
-      active: inProcessActive,
-      dbActive,
-      history: activityLog.getClaudeHistory(30),
+      active: dbActive,
+      dbActive: dbActive,
+      history: dbHistory,
     };
   });
 
   app.get("/api/repo-status", async () => {
     const db = getDbInstance();
     return db.select().from(repoStatus);
+  });
+
+  // Per-instance Claude output — for split-screen dashboard view
+  app.get("/api/claude/output/:instanceId", async (req) => {
+    const { instanceId } = req.params as { instanceId: string };
+    const afterId = parseInt((req.query as any).after ?? "0", 10);
+    const db = getDbInstance();
+
+    const rows = afterId > 0
+      ? await db.select().from(claudeOutput)
+          .where(and(eq(claudeOutput.instanceId, instanceId), gt(claudeOutput.id, afterId)))
+          .orderBy(claudeOutput.id)
+          .limit(200)
+      : await db.select().from(claudeOutput)
+          .where(eq(claudeOutput.instanceId, instanceId))
+          .orderBy(claudeOutput.id)
+          .limit(500);
+
+    return rows;
   });
 
   // === Partials for htmx polling ===
@@ -353,7 +381,11 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
       .select({ count: sql<number>`count(*)` })
       .from(contributions)
       .where(sql`${contributions.status} IN ('pr_created', 'merged')`);
-    const activeInstances = activityLog.getActiveInstances();
+    // Use DB for cross-process active instances
+    const activeInstancesDb = await db.select({ count: sql<number>`count(*)` })
+      .from(claudeInstances)
+      .where(sql`${claudeInstances.endedAt} IS NULL`);
+    const activeInstanceCount = activeInstancesDb[0]?.count ?? 0;
 
     reply.type("text/html").send(`
       <div class="stat-card">
@@ -373,7 +405,7 @@ export function registerRoutes(app: FastifyInstance, config: ContribotConfig) {
       </div>
       <div class="stat-card">
         <div class="stat-label">Claude Instances</div>
-        <div class="stat-value" style="color:${activeInstances.length > 0 ? "var(--accent)" : "inherit"}">${activeInstances.length}</div>
+        <div class="stat-value" style="color:${activeInstanceCount > 0 ? "var(--accent)" : "inherit"}">${activeInstanceCount}</div>
         <div class="stat-sub">Running now</div>
       </div>
     `);

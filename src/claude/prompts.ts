@@ -1,66 +1,93 @@
 import type { Issue } from "../github/issues.js";
 
-export function issueAnalysisPrompt(issues: Issue[], repoFullName: string, focus: string[]): string {
-  const issueList = issues
-    .map(
-      (i) =>
-        `### Issue #${i.number}: ${i.title}\n${i.body?.slice(0, 500) ?? "(no description)"}\nLabels: ${i.labels.map((l) => l.name).join(", ")}\nComments: ${i.comments}`
-    )
-    .join("\n\n");
+/**
+ * Unified repo analysis prompt — single Claude call that:
+ * 1. Analyzes issues (if any provided)
+ * 2. Scans codebase for improvement opportunities
+ */
+export function repoAnalysisPrompt(
+  repoFullName: string,
+  focus: string[],
+  reasons: string,
+  issues: Issue[],
+): string {
+  const unrestricted = focus.length === 0;
 
-  const focusDescription = focus.length > 0
-    ? `The contributor is interested in: ${focus.join(", ")}`
-    : "The contributor is open to all types of contributions (bug fixes, tests, documentation, refactoring, features)";
+  const focusDescription = unrestricted
+    ? "You are open to all types of contributions: bug fixes, tests, documentation, refactoring, features."
+    : `Focus on these areas: ${focus.join(", ")}.`;
 
-  return `You are analyzing open issues from the GitHub repository "${repoFullName}" to find ones suitable for contribution.
+  const reasonsBlock = reasons
+    ? `\nContext from the repo owner: ${reasons}\n`
+    : "";
 
-${focusDescription}
+  // Issue section — only if issues are available
+  let issueSection = "";
+  if (issues.length > 0) {
+    const issueList = issues
+      .map(
+        (i) =>
+          `### Issue #${i.number}: ${i.title}\n${i.body?.slice(0, 500) ?? "(no description)"}\nLabels: ${i.labels.map((l) => l.name).join(", ")}\nComments: ${i.comments}`
+      )
+      .join("\n\n");
 
-Here are the open issues:
+    issueSection = `
+## Open Issues
+
+The following open issues are available. Evaluate which ones are feasible to fix:
 
 ${issueList}
 
-For each issue, evaluate:
-1. Is it feasible to fix without deep domain knowledge?
-2. Is there a clear, actionable solution?
-3. Does it match the focus areas?
-4. Is it already being worked on (check comments count)?
-
-Respond with a JSON array. Each element should have:
+For each actionable issue, include it in the "issues" array with:
 - "number": issue number
 - "title": issue title
-- "feasibility": "easy" | "medium" | "hard" | "skip"
+- "feasibility": "easy" | "medium" (skip hard/unclear ones)
 - "reasoning": brief explanation
-- "matchesFocus": true/false
+- "matchesFocus": true if it matches the focus areas
 - "suggestedApproach": brief plan (1-2 sentences)
+`;
+  }
 
-Only include issues with feasibility "easy" or "medium". Skip issues that need extensive discussion or domain expertise.
+  // Determine which codebase areas to scan
+  const allAreas = ["tests", "documentation", "bug-fixes", "refactoring"];
+  const scanAreas = unrestricted ? allAreas : focus.filter((f) => allAreas.includes(f));
 
-Respond with ONLY the JSON array, no other text.`;
-}
+  let codeSection = "";
+  if (scanAreas.length > 0 || unrestricted) {
+    codeSection = `
+## Codebase Analysis
 
-export function codebaseScanPrompt(repoFullName: string, focus: string[]): string {
-  const focusDescription = focus.length > 0
-    ? `Focus on these areas: ${focus.join(", ")}`
-    : "Look at all areas: tests, documentation, bug fixes, and refactoring";
-
-  return `You are scanning the codebase of "${repoFullName}" to find improvement opportunities.
-
-${focusDescription}
+Scan the project structure and code to find improvement opportunities.
+${unrestricted ? "Look at all areas: tests, documentation, bug fixes, and refactoring." : `Focus on: ${scanAreas.join(", ")}.`}
 
 Look for:
-${focus.includes("tests") ? "- Missing test coverage for critical functions" : ""}
-${focus.includes("documentation") ? "- Missing or outdated documentation, incomplete READMEs" : ""}
-${focus.includes("bug-fixes") ? "- Obvious bugs, edge cases not handled, error handling gaps" : ""}
-${focus.includes("refactoring") ? "- Code duplication, overly complex functions, dead code" : ""}
+${scanAreas.includes("tests") || unrestricted ? "- Missing test coverage for critical functions" : ""}
+${scanAreas.includes("documentation") || unrestricted ? "- Missing or outdated documentation, incomplete READMEs" : ""}
+${scanAreas.includes("bug-fixes") || unrestricted ? "- Obvious bugs, edge cases not handled, error handling gaps" : ""}
+${scanAreas.includes("refactoring") || unrestricted ? "- Code duplication, overly complex functions, dead code" : ""}
 
-Scan the project structure and key files. For each opportunity found, provide:
+For each opportunity, include it in the "opportunities" array with:
 - "type": the category (tests/documentation/bug-fixes/refactoring)
 - "file": relative file path
-- "description": what could be improved
+- "description": what could be improved and how
 - "confidence": "high" | "medium" | "low"
+`;
+  }
 
-Respond with ONLY a JSON array of opportunities, sorted by confidence (high first). Maximum 10 items.`;
+  return `You are analyzing the repository "${repoFullName}" to find contribution opportunities.
+
+${focusDescription}
+${reasonsBlock}
+${issueSection}
+${codeSection}
+
+Respond with a JSON object containing two arrays:
+{
+  "issues": [ ... ],        // analyzed issues (empty array if no issues provided or none actionable)
+  "opportunities": [ ... ]  // codebase improvements found (sorted by confidence, max 10)
+}
+
+Respond with ONLY the JSON object, no other text.`;
 }
 
 export function contributionPrompt(
@@ -105,3 +132,7 @@ Respond with a JSON object:
 
 Respond with ONLY the JSON object, no other text.`;
 }
+
+// Legacy aliases for backward compatibility
+export const issueAnalysisPrompt = repoAnalysisPrompt;
+export const codebaseScanPrompt = repoAnalysisPrompt;

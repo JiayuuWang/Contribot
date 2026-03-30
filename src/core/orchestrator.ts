@@ -2,7 +2,7 @@ import cron from "node-cron";
 import PQueue from "p-queue";
 import { type ContribotConfig, type RepoConfig, syncReposToDb } from "../config.js";
 import { getDb } from "../db/connection.js";
-import { repos, activityLogs, repoStatus } from "../db/schema.js";
+import { repos, activityLogs, repoStatus, claudeInstances, claudeOutput } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { setupWorkspace } from "../git/repo-manager.js";
 import { scanRepo, type ScanResult } from "./scanner.js";
@@ -61,6 +61,35 @@ export class Orchestrator {
         }).onConflictDoUpdate({
           target: repoStatus.repoFullName,
           set: { phase, currentTask, claudePhase, updatedAt: new Date().toISOString() },
+        }).run();
+      },
+      // Claude instance writer — persist active instances to DB for cross-process dashboard
+      (action, instance) => {
+        if (action === "start") {
+          this.db.insert(claudeInstances).values({
+            id: instance.id,
+            repo: instance.repo,
+            phase: instance.phase,
+            prompt: instance.prompt,
+            startedAt: instance.startedAt,
+          }).run();
+        } else {
+          this.db.update(claudeInstances).set({
+            endedAt: instance.endedAt,
+            durationMs: instance.durationMs,
+            success: instance.success,
+            error: instance.error,
+            costUsd: instance.costUsd,
+          }).where(eq(claudeInstances.id, instance.id)).run();
+        }
+      },
+      // Claude output writer — persist per-line output for split-screen dashboard
+      (instanceId, stream, line) => {
+        this.db.insert(claudeOutput).values({
+          instanceId,
+          timestamp: new Date().toISOString(),
+          stream,
+          line: line.slice(0, 4000),
         }).run();
       }
     );
@@ -188,12 +217,12 @@ export class Orchestrator {
         .set({ localPath: workspace.localPath, forkCreated: true })
         .where(eq(repos.id, repoRow.id));
 
-      // 2. Scan
-      this.setRepoStatus(repo, "scanning", "Scanning issues and codebase");
-      activityLog.info("orchestrator", "Scanning issues and codebase", repo);
+      // 2. Analyze — single Claude call: codebase + issues (issues are optional)
+      this.setRepoStatus(repo, "scanning", "Analyzing repo");
+      activityLog.info("orchestrator", "Analyzing repo (codebase + issues)", repo);
       const scanResult = await scanRepo(repoConfig, repoRow.id, workspace, this.config);
       activityLog.info("orchestrator",
-        `Scan complete: ${scanResult.issues.length} issues, ${scanResult.opportunities.length} opportunities`, repo);
+        `Analysis complete: ${scanResult.issues.length} issues, ${scanResult.opportunities.length} opportunities`, repo);
 
       // 3. Plan
       this.setRepoStatus(repo, "planning", "Planning contributions");
@@ -220,7 +249,7 @@ export class Orchestrator {
         }
       }
 
-      // 5. Optionally create issues
+      // 5. Optionally create issues (only if focus includes "issues" or is empty)
       if (!this.opts.dryRun) {
         this.setRepoStatus(repo, "issue-creating", "Proposing new issues");
       }

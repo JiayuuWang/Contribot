@@ -25,13 +25,19 @@ export interface ClaudeInstance {
 // DB writer — injected at startup so activity-log doesn't import db (avoids circular deps)
 let _dbWriter: ((level: string, source: string, repo: string | undefined, message: string) => void) | null = null;
 let _statusWriter: ((repo: string, phase: string, currentTask?: string, claudePhase?: string) => void) | null = null;
+let _claudeInstanceWriter: ((action: "start" | "end", instance: ClaudeInstance) => void) | null = null;
+let _claudeOutputWriter: ((instanceId: string, stream: "stdout" | "stderr", line: string) => void) | null = null;
 
 export function initActivityLogDb(
   dbWriter: typeof _dbWriter,
-  statusWriter: typeof _statusWriter
+  statusWriter: typeof _statusWriter,
+  claudeInstanceWriter?: typeof _claudeInstanceWriter,
+  claudeOutputWriter?: typeof _claudeOutputWriter,
 ) {
   _dbWriter = dbWriter;
   _statusWriter = statusWriter;
+  _claudeInstanceWriter = claudeInstanceWriter ?? null;
+  _claudeOutputWriter = claudeOutputWriter ?? null;
 }
 
 class ActivityLog extends EventEmitter {
@@ -90,7 +96,21 @@ class ActivityLog extends EventEmitter {
       try { _statusWriter(repo, "running", phase, phase); } catch { /* ignore */ }
     }
 
+    // Persist to DB
+    if (_claudeInstanceWriter) {
+      try { _claudeInstanceWriter("start", instance); } catch { /* ignore */ }
+    }
+
     this.append("info", "claude:lifecycle", `[START] ${phase}`, repo);
+  }
+
+  claudeOutput(instanceId: string, stream: "stdout" | "stderr", line: string) {
+    this.emit("claude:output", { instanceId, stream, line });
+
+    // Persist to DB for cross-process dashboard
+    if (_claudeOutputWriter) {
+      try { _claudeOutputWriter(instanceId, stream, line); } catch { /* ignore */ }
+    }
   }
 
   claudeEnd(instanceId: string, success: boolean, costUsd?: number, error?: string) {
@@ -116,6 +136,11 @@ class ActivityLog extends EventEmitter {
     }
 
     this.emit("claude:end", completed);
+
+    // Persist to DB
+    if (_claudeInstanceWriter) {
+      try { _claudeInstanceWriter("end", completed); } catch { /* ignore */ }
+    }
 
     const durS = (durationMs / 1000).toFixed(1);
     const costStr = costUsd !== undefined ? ` cost=$${costUsd.toFixed(4)}` : "";
