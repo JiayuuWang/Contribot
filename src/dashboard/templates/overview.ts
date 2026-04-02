@@ -92,6 +92,9 @@ export function overviewTemplate(data: OverviewData): string {
       <h1>Overview</h1>
       <div class="topbar-actions">
         <a href="/logs" class="btn btn-sm">Live Logs</a>
+        <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
         <span style="color:var(--text-tertiary);font-size:13px" hx-get="/partials/clock" hx-trigger="every 30s" hx-swap="innerHTML">${new Date().toLocaleTimeString()}</span>
       </div>
     </div>
@@ -175,8 +178,8 @@ export function overviewTemplate(data: OverviewData): string {
       }
       .instance-row:last-child { border-bottom: none; }
       .instance-phase {
-        font-family: 'SF Mono', monospace; font-size: 11px;
-        padding: 2px 7px; background: #1a1a2e; color: var(--accent);
+        font-family: 'Microsoft YaHei Mono', 'Consolas', monospace; font-size: 11px;
+        padding: 2px 7px; background: var(--accent-glow, rgba(16,163,127,0.15)); color: var(--accent);
         border-radius: 4px; flex-shrink: 0;
       }
       .instance-repo { font-weight: 600; flex-shrink: 0; min-width: 120px; }
@@ -185,6 +188,17 @@ export function overviewTemplate(data: OverviewData): string {
       .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.5s ease-in-out infinite; flex-shrink: 0; }
       @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
     </style>
+    <script>
+      (function() {
+        const btn = document.getElementById('theme-btn');
+        if (btn) {
+          const t = document.documentElement.getAttribute('data-theme');
+          btn.innerHTML = t === 'dark'
+            ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
+            : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>';
+        }
+      })();
+    </script>
   `;
 }
 
