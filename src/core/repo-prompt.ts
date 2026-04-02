@@ -31,7 +31,7 @@ export function buildRepoPrompt(
   const maxPRs = repoConfig.max_prs_per_day;
   const labels = repoConfig.issue_labels;
 
-  const repoDir = `${workspaceDir}/${owner}__${name}`;
+  const repoDir = `${workspaceDir}/${owner}__${name}`.replace(/\\/g, "/");
   const sourceDir = `${repoDir}/source`;
   const logsDir = `${repoDir}/logs`;
   const notesFile = `${repoDir}/notes.md`;

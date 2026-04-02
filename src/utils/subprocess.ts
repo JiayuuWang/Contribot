@@ -13,6 +13,8 @@ export interface SubprocessOptions {
   env?: Record<string, string>;
 }
 
+const isWindows = process.platform === "win32";
+
 export async function runSubprocess(
   command: string,
   args: string[],
@@ -23,12 +25,11 @@ export async function runSubprocess(
   return new Promise((resolve, reject) => {
     // On Windows, we need shell for resolving .cmd/.bat wrappers (gh, claude, etc.)
     // Combine command + args into a single string to avoid the DEP0190 warning
-    const fullCommand =
-      process.platform === "win32"
-        ? `${command} ${args.map(escapeArg).join(" ")}`
-        : command;
+    const fullCommand = isWindows
+      ? `${command} ${args.map(escapeArgWin).join(" ")}`
+      : command;
 
-    const spawnArgs = process.platform === "win32" ? [] : args;
+    const spawnArgs = isWindows ? [] : args;
 
     const proc = spawn(fullCommand, spawnArgs, {
       cwd,
@@ -65,7 +66,8 @@ export async function runSubprocess(
   });
 }
 
-function escapeArg(arg: string): string {
+/** Escape a shell argument for Windows cmd.exe */
+function escapeArgWin(arg: string): string {
   if (/[ "&|<>^]/.test(arg)) {
     return `"${arg.replace(/"/g, '\\"')}"`;
   }

@@ -73,10 +73,16 @@ export async function invokeClaude(opts: ClaudeInvocation): Promise<ClaudeResult
   logger.info({ cwd: opts.cwd, model: opts.model }, "Invoking Claude");
   activityLog.info("claude", `Invoking Claude: ${promptPreview}...`, repoLabel);
 
+  // Build env: conditionally apply TLS 1.2 restriction
+  const childEnv = { ...process.env };
+  if (process.env.CONTRIBOT_TLS12 === "1") {
+    childEnv.NODE_OPTIONS = "--tls-max-v1.2";
+  }
+
   return new Promise((resolve) => {
     const proc = spawn(command, spawnArgs, {
       cwd: opts.cwd,
-      env: { ...process.env, NODE_OPTIONS: "--tls-max-v1.2" },
+      env: childEnv,
       shell: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
