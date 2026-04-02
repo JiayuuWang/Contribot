@@ -2,24 +2,16 @@
 
 **[English](README.md)** | **[中文](README.zh-CN.md)** | **[한국어](README.ko.md)**
 
-A CLI tool that automatically contributes to GitHub open-source repositories using [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as the reasoning engine. It continuously monitors your target repos, analyzes issues and codebase, then submits PRs under **your own GitHub account**.
+A CLI tool that automatically contributes to GitHub open-source repositories using [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as the reasoning engine. It spawns autonomous Claude Code instances that analyze repos, write code, and submit PRs under **your own GitHub account**.
 
 ## How It Works
 
 ```
-You configure target repos → Contribot scans issues & code →
-Claude Code analyzes & writes fixes → Git commits under your account →
-PR submitted to upstream
+You configure target repos → Contribot spawns a Claude Code instance per repo →
+Each instance: analyzes codebase + issues → writes code → commits → creates PR
 ```
 
-**Core loop:**
-
-1. **Scan** — Fetch open issues, analyze codebase for improvement opportunities
-2. **Plan** — Rank candidates by feasibility, check daily PR limits
-3. **Contribute** — Claude Code makes code changes in an isolated workspace
-4. **Submit** — Commit, push, and create PR via `gh` CLI
-
-All git operations use native `git` commands. PRs are created under your GitHub identity, not Claude's.
+For each target repo, Contribot launches an autonomous Claude Code instance with full tool access (Bash, Read, Edit, etc.). The instance handles the entire workflow: forking, cloning, analyzing, coding, committing, pushing, and PR creation — just like a human developer would in a terminal.
 
 ## Prerequisites
 
@@ -31,149 +23,68 @@ All git operations use native `git` commands. PRs are created under your GitHub 
 | **GitHub CLI** (`gh`) | Fork repos, create PRs | [cli.github.com](https://cli.github.com) |
 | **Claude Code** (`claude`) | AI reasoning engine | [docs.anthropic.com](https://docs.anthropic.com/en/docs/claude-code) |
 
+> Works on **Windows**, **macOS**, and **Linux**. Setup and usage commands are identical on all platforms.
+
 ## Setup
 
-### Step 1: Clone & Install
-
 ```bash
+# 1. Clone & install
 git clone https://github.com/JiayuuWang/Contribot.git
 cd Contribot
 pnpm install
-```
 
-### Step 2: Ensure prerequisites are ready
-
-Contribot depends on three external tools. Install and authenticate them beforehand. **They are prerequisites only — they do not need to run in the background.** Contribot invokes them automatically as subprocesses at runtime.
-
-#### 2a. GitHub CLI — for forking repos and creating PRs
-
-```bash
-# After installing, log in to your GitHub account (interactive)
+# 2. Authenticate GitHub CLI
 gh auth login
-```
 
-Verify: `gh auth status` should show your username.
-
-#### 2b. Claude Code — AI reasoning engine
-
-```bash
-# Install Claude Code CLI (if not already installed)
-npm install -g @anthropic-ai/claude-code
-
-# First run launches the setup wizard for API key or OAuth
+# 3. Set up Claude Code (first run launches setup wizard)
 claude
-```
+# Type /exit once you see the interactive interface
 
-Seeing the interactive interface means setup is complete. Type `/exit` to quit. **You do not need to keep Claude Code running** — Contribot calls it via `claude --print` in the background.
-
-#### 2c. Git — verify user config
-
-```bash
-git config --global user.name   # should show your name
-git config --global user.email  # should show your email
-```
-
-### Step 3: Initialize Contribot config
-
-```bash
+# 4. Initialize config
 pnpm dev config init
-```
 
-This creates `contribot.toml` in the project root. Open it and add your target repositories:
-
-```toml
-[general]
-scan_interval_minutes = 60       # How often to scan (minutes)
-max_concurrent_repos = 3         # Parallel repo processing
-claude_model = "sonnet"          # Claude model (sonnet/opus/haiku)
-max_budget_per_task_usd = 0.50   # Cost cap per Claude invocation
-dashboard_port = 3847
-
-[github]
-username = ""  # Auto-detected from gh auth if left empty
-
-# Only "name" is required. All other fields have defaults.
-[[repos]]
-name = "owner/repo"
-```
-
-#### Repo fields reference
-
-| Field | Required | Default | Effect |
-|-------|----------|---------|--------|
-| `name` | **Yes** | — | GitHub repo in `owner/repo` format |
-| `focus` | No | `[]` (all areas) | What to contribute. **Empty = unrestricted**, Contribot will look at all areas. Specify values to narrow scope: `bug-fixes`, `tests`, `documentation`, `refactoring`, `features`, `issues` |
-| `reasons` | No | `""` | Context passed to Claude explaining why you want to contribute. Helps it make better decisions |
-| `issue_labels` | No | `[]` (all issues) | GitHub labels to filter issues. **Empty = no filter**, all open issues are scanned. Specify labels to narrow scope |
-| `max_prs_per_day` | No | `2` | Daily PR cap for this repo. Set to `0` to pause PRs while still scanning |
-| `enabled` | No | `true` | Set to `false` to skip this repo during scan cycles |
-
-> **How `focus` works:** When empty, Contribot contributes in all areas including creating new issues. When specified, it restricts to listed types only — e.g. `["bug-fixes", "tests"]` means it will only fix bugs and add tests, and will **not** create new issues unless `"issues"` is explicitly included.
-
-### Step 4: Verify everything
-
-```bash
+# 5. Verify everything
 pnpm dev config check
 ```
 
-Expected output:
+Edit `contribot.toml` to add your target repos:
 
+```toml
+[general]
+scan_interval_minutes = 60
+max_concurrent_repos = 3
+claude_model = "sonnet"
+dashboard_port = 3847
+
+[github]
+username = ""  # Auto-detected from gh auth if empty
+
+[[repos]]
+name = "owner/repo"
+# focus = []           # Empty = all areas (bug-fixes, tests, docs, refactoring)
+# reasons = ""         # Context for Claude
+# issue_labels = []    # Empty = all issues
+# max_prs_per_day = 2
+# enabled = true
 ```
-  ✓ git: git version 2.x.x
-  ✓ gh CLI: gh version 2.x.x
-  ✓ gh auth: Logged in as yourname
-  ✓ claude CLI: x.x.x (Claude Code)
-  ✓ contribot.toml: valid
-
-All checks passed! Ready to run.
-```
-
-If any check fails, install or authenticate the corresponding tool.
 
 ## Usage
 
-### Manage target repos
-
-Two ways to add target repos — **pick either one**, no need to do both:
-
-**Option A: Edit `contribot.toml` directly** (recommended for bulk configuration)
-
-Add `[[repos]]` blocks to the config file. Contribot syncs them to the database on startup.
-
-**Option B: Use CLI commands** (recommended for quickly adding a single repo)
-
 ```bash
-# Add a repo (writes to both contribot.toml and database)
-pnpm dev repo add owner/repo --focus "bug-fixes,tests" --reasons "Want to contribute"
-
-# List repos
-pnpm dev repo list
-
-# Enable/disable
-pnpm dev repo enable owner/repo
-pnpm dev repo disable owner/repo
-
-# Remove
-pnpm dev repo remove owner/repo
-```
-
-### Run the orchestrator
-
-```bash
-# Start continuous mode (scans every N minutes)
-pnpm dev run
-
-# Single scan cycle then exit
+# Single scan cycle
 pnpm dev run --once
 
-# Dry run (scan & plan, no PRs)
+# Continuous mode (scans every N minutes)
+pnpm dev run
+
+# With web dashboard
+pnpm dev run --dashboard
+
+# Dry run (analyze only, no PRs)
 pnpm dev run --dry-run
 
-# Process one specific repo
+# Target a single repo
 pnpm dev run --repo owner/repo
-
-# Start with web dashboard
-pnpm dev run --dashboard
 ```
 
 ### Monitor
@@ -189,48 +100,89 @@ pnpm dev history
 pnpm dev dashboard
 ```
 
-The dashboard runs at `http://localhost:3847` with live status updates.
+Dashboard at `http://localhost:3847` — shows live Claude Code output in split-screen terminals, contribution history, and repo status. Supports dark/light theme toggle.
+
+### Manage repos
+
+```bash
+pnpm dev repo add owner/repo --focus "bug-fixes,tests"
+pnpm dev repo list
+pnpm dev repo enable owner/repo
+pnpm dev repo disable owner/repo
+pnpm dev repo remove owner/repo
+```
+
+## Workspace Structure
+
+Each target repo gets an isolated workspace:
+
+```
+data/workspaces/
+└── owner__repo/
+    ├── source/      # Git clone of the forked repo
+    ├── logs/        # Per-session work logs (timestamped)
+    └── notes.md     # Persistent analysis notes across sessions
+```
+
+Claude reads `notes.md` on startup to continue previous work rather than starting from scratch.
 
 ## Architecture
 
 ```
 src/
 ├── cli/          # CLI commands (commander)
-├── core/         # Orchestrator, Scanner, Planner, Contributor
-├── claude/       # Claude Code bridge (subprocess invocation)
-├── git/          # Native git operations (clone, branch, commit, push)
-├── github/       # GitHub CLI wrappers (issues, PRs)
-├── db/           # SQLite persistence (drizzle-orm)
-├── dashboard/    # Web UI (Fastify + htmx)
+├── core/         # Orchestrator + repo prompt builder
+├── claude/       # Claude Code bridge (stream-json subprocess)
+├── db/           # SQLite persistence (drizzle-orm + better-sqlite3)
+├── dashboard/    # Web UI (Fastify + htmx, dark/light theme)
 └── utils/        # Logger, subprocess runner
 ```
 
-**Key design decisions:**
+Each repo is processed by a single Claude Code instance (`claude --print --dangerously-skip-permissions --output-format stream-json`) that receives a comprehensive prompt and handles the entire contribution workflow autonomously.
 
-- **SQLite** for persistence — single file, no external process, survives restarts
-- **p-queue** for concurrency — process N repos in parallel
-- **Claude `--print` mode** — non-interactive subprocess, structured output
-- **Native `git` + `gh` CLI** — uses your credentials, your identity
+## Repo Config Reference
+
+| Field | Required | Default | Effect |
+|-------|----------|---------|--------|
+| `name` | **Yes** | — | GitHub repo in `owner/repo` format |
+| `focus` | No | `[]` (all areas) | Contribution scope: `bug-fixes`, `tests`, `documentation`, `refactoring`, `features`, `issues` |
+| `reasons` | No | `""` | Context for Claude about why you want to contribute |
+| `issue_labels` | No | `[]` (all issues) | GitHub labels to filter issues |
+| `max_prs_per_day` | No | `2` | Daily PR cap per repo |
+| `enabled` | No | `true` | Set `false` to skip |
 
 ## Safety Controls
 
-- `--dry-run` mode: scan and plan without creating PRs
+- `--dry-run` mode: analyze without creating PRs
 - Per-repo daily PR limit (default: 2)
-- Claude budget cap per task (`max_budget_per_task_usd`)
+- Claude budget cap per task
 - AI-assisted disclosure in PR descriptions
 - Isolated workspace per repo
 - Graceful shutdown (SIGINT/SIGTERM)
 
-## Configuration Reference
+## Troubleshooting
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `scan_interval_minutes` | 60 | Minutes between scan cycles |
-| `max_concurrent_repos` | 3 | Max repos processed in parallel |
-| `claude_model` | sonnet | Claude model for analysis |
-| `max_budget_per_task_usd` | 0.50 | Cost cap per Claude invocation |
-| `dashboard_port` | 3847 | Dashboard HTTP port |
-| `max_prs_per_day` | 2 | Per-repo daily PR limit |
+### API proxy TLS issues
+
+If you use an API proxy that has TLS 1.3 renegotiation issues (connections hang), set:
+
+```bash
+NODE_OPTIONS="--tls-max-v1.2" pnpm dev run --once
+```
+
+This restricts TLS to version 1.2. Not needed for direct Anthropic API access.
+
+### `better-sqlite3` build fails
+
+This native module compiles during `pnpm install`. If it fails:
+
+```bash
+# Ensure build tools are installed
+# macOS: xcode-select --install
+# Ubuntu/Debian: sudo apt install build-essential python3
+# Windows: npm install -g windows-build-tools
+pnpm install
+```
 
 ## Tech Stack
 

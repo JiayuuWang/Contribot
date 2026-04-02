@@ -68,9 +68,7 @@ All git operations are native `git` subprocess calls. GitHub operations use the 
 
 ## Key Design Constraints
 
-- **Windows compatibility**: CRLF → LF normalization on TOML read; Claude invoked via `shell: true` with escaped args on Windows.
-- **Cross-platform**: All subprocess spawning uses platform-aware logic (`isWindows` checks). Paths in prompts are normalized to `/`. `better-sqlite3` is a native addon — `pnpm install` compiles it for the host platform.
-- **TLS 1.2 override**: Set `CONTRIBOT_TLS12=1` env var if using an API proxy with TLS 1.3 issues. Without this flag, the system uses the default TLS version (works for direct Anthropic API access on Linux/Mac).
+- **Cross-platform**: Windows/macOS/Linux. Subprocess spawning uses `isWindows` checks for command string vs args array. CRLF → LF normalization on TOML read. Paths in prompts normalized to `/`. `better-sqlite3` compiles per-platform on install.
 - **No build step for dev**: Use `pnpm dev` (tsx) for all local development.
 - **JSON arrays in DB**: `focus` and `issue_labels` are stored as JSON strings in SQLite and parsed on read.
 - **Daily PR limits** are enforced by counting `contributions` rows with `type='pr'` and `status='pr_created'` created today.
