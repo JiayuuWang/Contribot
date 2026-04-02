@@ -2,7 +2,7 @@
 
 **[English](README.md)** | **[中文](README.zh-CN.md)** | **[한국어](README.ko.md)**
 
-一个自动为 GitHub 开源仓库做贡献的 CLI 工具，以 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 作为推理引擎。它持续监控你的目标仓库、分析 Issue 和代码，然后以**你自己的 GitHub 账号**提交 PR。
+一个自动为 GitHub 开源仓库做贡献的系统，用一群 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 作为推理引擎。它持续监控你的目标仓库、分析 Issue 和代码，然后以**你自己的 GitHub 账号**提交 PR。
 
 ## 工作原理
 

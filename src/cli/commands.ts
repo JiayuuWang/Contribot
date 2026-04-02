@@ -6,6 +6,7 @@ import { registerHistoryCommand } from "./history.js";
 import { registerDashboardCommand } from "./dashboard.js";
 import { initConfig } from "../config.js";
 import { runSubprocess } from "../utils/subprocess.js";
+import { runQuickstart } from "./quickstart.js";
 import { logger } from "../utils/logger.js";
 
 export function createProgram(): Command {
@@ -15,6 +16,21 @@ export function createProgram(): Command {
     .name("contribot")
     .description("Auto-contribute to GitHub open-source repos using Claude Code")
     .version("0.1.0");
+
+  // quickstart
+  program
+    .command("quickstart")
+    .description("One-command setup: fetch trending repos, generate config, and start contributing")
+    .option("--api-key <key>", "Anthropic API key (or set ANTHROPIC_API_KEY env)")
+    .option("--base-url <url>", "Custom API base URL (for proxies)")
+    .option("--model <model>", "Claude model (default: sonnet)", "sonnet")
+    .action(async (opts) => {
+      await runQuickstart({
+        apiKey: opts.apiKey,
+        baseUrl: opts.baseUrl,
+        model: opts.model,
+      });
+    });
 
   // config commands
   const config = program.command("config").description("Manage configuration");

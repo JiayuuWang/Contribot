@@ -2,7 +2,39 @@
 
 **[English](README.md)** | **[中文](README.zh-CN.md)** | **[한국어](README.ko.md)**
 
-A CLI tool that automatically contributes to GitHub open-source repositories using [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as the reasoning engine. It spawns autonomous Claude Code instances that analyze repos, write code, and submit PRs under **your own GitHub account**.
+A system that automatically contributes to GitHub open-source repositories using tons of [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as the reasoning engine. It spawns autonomous Claude Code instances that analyze repos, write code, and submit PRs under **your own GitHub account**.
+
+## Quickstart — One Command
+
+Everything — Node.js, pnpm, Claude Code, clone, dependencies, config — handled automatically. Just provide your API key:
+
+**macOS / Linux:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/JiayuuWang/Contribot/main/bootstrap.sh | bash -s -- --api-key sk-ant-xxx
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/JiayuuWang/Contribot/main/bootstrap.ps1 -OutFile bootstrap.ps1; .\bootstrap.ps1 -ApiKey "sk-ant-xxx"
+```
+
+**Using a custom API proxy:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/JiayuuWang/Contribot/main/bootstrap.sh | bash -s -- \
+  --api-key sk-ant-xxx \
+  --base-url https://your-proxy.com
+```
+
+> The quickstart automatically targets **this week's top 10 GitHub trending repos**. Edit `contribot.toml` afterward to change targets.
+>
+> **Prerequisites that must be installed manually first:** [Git](https://git-scm.com) and [GitHub CLI](https://cli.github.com) (`gh auth login`). The bootstrap script installs everything else.
+
+**Already cloned?** Run quickstart locally:
+```bash
+cd Contribot
+pnpm dev quickstart --api-key sk-ant-xxx
+pnpm dev run --once --dashboard
+```
 
 ## How It Works
 
