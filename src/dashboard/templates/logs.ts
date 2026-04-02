@@ -328,15 +328,19 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
               : row.line.startsWith('[result') ? 'out-line result-line'
               : 'out-line';
 
+            // Prepend timestamp
+            const ts = row.timestamp ? row.timestamp.split('T')[1]?.slice(0,8) ?? '' : '';
+            const displayText = ts ? ts + '  ' + row.line : row.line;
+
             // Cache line
-            d.lines.push({ cls, text: row.line });
+            d.lines.push({ cls, text: displayText });
             if (row.id > d.lastOutputId) d.lastOutputId = row.id;
 
             // Append to pane if it exists
             if (pane) {
               const div = document.createElement('div');
               div.className = cls;
-              div.textContent = row.line;
+              div.textContent = displayText;
               pane.appendChild(div);
             }
           }

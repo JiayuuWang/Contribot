@@ -209,8 +209,10 @@ export class Orchestrator {
     this.setRepoStatus(repo, "contributing", "Claude Code working on repo");
 
     try {
-      // Build workspace path (Claude will create it if needed)
+      // Build workspace path — Claude will create subdirs if needed
       const workspaceDir = resolve(this.config.general.workspaces_dir);
+      const [owner, name] = repo.split("/");
+      const repoWorkspace = resolve(workspaceDir, `${owner}__${name}`);
 
       // Build the comprehensive prompt
       const prompt = buildRepoPrompt(
@@ -222,9 +224,10 @@ export class Orchestrator {
       );
 
       // Single Claude Code invocation — does EVERYTHING
+      // cwd is the repo workspace root (not source/) so Claude can access notes/logs too
       const result = await invokeClaude({
         prompt,
-        cwd: workspaceDir,
+        cwd: repoWorkspace,
         model: this.config.general.claude_model,
         // Give Claude full tool access to handle the entire workflow
         allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
@@ -264,9 +267,8 @@ export class Orchestrator {
         logger.error({ repo, error: result.error }, "Claude Code instance failed");
       }
 
-      // Update workspace path in DB
-      const [owner, name] = repo.split("/");
-      const localPath = resolve(workspaceDir, `${owner}__${name}`);
+      // Update workspace path in DB (source/ subdir is where git repo lives)
+      const localPath = resolve(repoWorkspace, "source");
       await this.db
         .update(repos)
         .set({ localPath, forkCreated: true, lastScannedAt: new Date().toISOString() })
