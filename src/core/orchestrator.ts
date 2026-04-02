@@ -1,14 +1,12 @@
 import cron from "node-cron";
 import PQueue from "p-queue";
+import { resolve } from "path";
 import { type ContribotConfig, type RepoConfig, syncReposToDb } from "../config.js";
 import { getDb } from "../db/connection.js";
-import { repos, activityLogs, repoStatus, claudeInstances, claudeOutput } from "../db/schema.js";
-import { eq } from "drizzle-orm";
-import { setupWorkspace } from "../git/repo-manager.js";
-import { scanRepo, type ScanResult } from "./scanner.js";
-import { planContributions, countTodaysPRs, type ContributionPlan } from "./planner.js";
-import { executeContribution } from "./contributor.js";
-import { proposeAndCreateIssues } from "./issue-creator.js";
+import { repos, activityLogs, repoStatus, claudeInstances, claudeOutput, contributions } from "../db/schema.js";
+import { eq, sql } from "drizzle-orm";
+import { invokeClaude } from "../claude/bridge.js";
+import { buildRepoPrompt } from "./repo-prompt.js";
 import { getAuthenticatedUser } from "../github/gh-cli.js";
 import { logger } from "../utils/logger.js";
 import { activityLog, initActivityLogDb } from "../utils/activity-log.js";
@@ -98,6 +96,9 @@ export class Orchestrator {
   async start(): Promise<void> {
     this.running = true;
 
+    // Clean stale data from previous sessions
+    this.cleanStaleData();
+
     // Sync TOML repos → DB (single source of truth)
     await syncReposToDb(this.config, this.config.general.db_path);
 
@@ -173,7 +174,7 @@ export class Orchestrator {
 
     logger.info({ count: filteredRepos.length }, "Processing repos");
 
-    // Enqueue each repo
+    // Enqueue each repo — each gets its own Claude Code instance
     const promises = filteredRepos.map((repo) =>
       this.queue.add(async () => {
         if (!this.running) return;
@@ -186,6 +187,10 @@ export class Orchestrator {
     activityLog.info("orchestrator", "Scan cycle complete");
   }
 
+  /**
+   * Process a repo by spawning a single Claude Code instance that handles everything:
+   * fork, clone, analyze, code, commit, push, PR creation.
+   */
   private async processRepo(
     repoRow: typeof repos.$inferSelect
   ): Promise<void> {
@@ -200,60 +205,72 @@ export class Orchestrator {
 
     const repo = repoConfig.name;
     logger.info({ repo }, "Processing repo");
-    activityLog.info("orchestrator", "Processing repo", repo);
-    this.setRepoStatus(repo, "scanning", "Setting up workspace");
+    activityLog.info("orchestrator", "Spawning Claude Code instance", repo);
+    this.setRepoStatus(repo, "contributing", "Claude Code working on repo");
 
     try {
-      // 1. Setup workspace
-      activityLog.info("orchestrator", "Setting up workspace (fork + clone + sync)", repo);
-      const workspace = await setupWorkspace(
-        repoConfig.name,
-        this.config.general.workspaces_dir,
-        this.username
+      // Build workspace path (Claude will create it if needed)
+      const workspaceDir = resolve(this.config.general.workspaces_dir);
+
+      // Build the comprehensive prompt
+      const prompt = buildRepoPrompt(
+        repoConfig,
+        this.username,
+        workspaceDir,
+        this.config,
+        this.opts.dryRun ?? false,
       );
 
+      // Single Claude Code invocation — does EVERYTHING
+      const result = await invokeClaude({
+        prompt,
+        cwd: workspaceDir,
+        model: this.config.general.claude_model,
+        // Give Claude full tool access to handle the entire workflow
+        allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
+        timeout: 900_000, // 15 minutes — repo work takes time
+        repo,
+        phase: "contribute",
+      });
+
+      if (result.success) {
+        activityLog.info("orchestrator", "Claude Code instance completed successfully", repo);
+        logger.info({ repo }, "Claude Code instance completed");
+
+        // Try to parse the contribution summary from output
+        const summary = parseContributionSummary(result.output);
+        if (summary) {
+          for (const contrib of summary.contributions) {
+            await this.db.insert(contributions).values({
+              repoId: repoRow.id,
+              type: contrib.type === "pr" ? "pr" : "issue",
+              status: contrib.prUrl ? "pr_created" : "completed",
+              issueNumber: contrib.issueNumber ?? null,
+              branchName: contrib.branch ?? null,
+              title: contrib.title,
+              description: contrib.description,
+              prUrl: contrib.prUrl ?? null,
+              startedAt: new Date().toISOString(),
+              completedAt: new Date().toISOString(),
+            });
+            activityLog.info("orchestrator", `PR: ${contrib.prUrl ?? contrib.title}`, repo);
+          }
+          if (summary.analysisNotes) {
+            activityLog.info("orchestrator", `Notes: ${summary.analysisNotes}`, repo);
+          }
+        }
+      } else {
+        activityLog.error("orchestrator", `Claude Code failed: ${result.error}`, repo);
+        logger.error({ repo, error: result.error }, "Claude Code instance failed");
+      }
+
+      // Update workspace path in DB
+      const [owner, name] = repo.split("/");
+      const localPath = resolve(workspaceDir, `${owner}__${name}`);
       await this.db
         .update(repos)
-        .set({ localPath: workspace.localPath, forkCreated: true })
+        .set({ localPath, forkCreated: true, lastScannedAt: new Date().toISOString() })
         .where(eq(repos.id, repoRow.id));
-
-      // 2. Analyze — single Claude call: codebase + issues (issues are optional)
-      this.setRepoStatus(repo, "scanning", "Analyzing repo");
-      activityLog.info("orchestrator", "Analyzing repo (codebase + issues)", repo);
-      const scanResult = await scanRepo(repoConfig, repoRow.id, workspace, this.config);
-      activityLog.info("orchestrator",
-        `Analysis complete: ${scanResult.issues.length} issues, ${scanResult.opportunities.length} opportunities`, repo);
-
-      // 3. Plan
-      this.setRepoStatus(repo, "planning", "Planning contributions");
-      const todaysPRs = await countTodaysPRs(repoRow.id, this.config.general.db_path);
-      const plans = planContributions(scanResult, repoConfig, todaysPRs);
-      activityLog.info("orchestrator", `Planned ${plans.length} contributions (${todaysPRs} PRs today, limit ${repoConfig.max_prs_per_day})`, repo);
-
-      // 4. Execute contributions
-      for (const plan of plans) {
-        if (!this.running) break;
-        this.setRepoStatus(repo, "contributing", plan.description.split("\n")[0].slice(0, 80));
-        activityLog.info("orchestrator", `Contributing: ${plan.branchName}`, repo);
-
-        const result = await executeContribution(
-          plan, repoConfig, repoRow.id, workspace, this.config, this.opts.dryRun
-        );
-
-        if (result.success) {
-          activityLog.info("orchestrator", `PR created: ${result.prUrl}`, repo);
-          logger.info({ repo, pr: result.prUrl }, "Contribution succeeded");
-        } else {
-          activityLog.warn("orchestrator", `Contribution failed: ${result.error}`, repo);
-          logger.warn({ repo, error: result.error }, "Contribution failed");
-        }
-      }
-
-      // 5. Optionally create issues (only if focus includes "issues" or is empty)
-      if (!this.opts.dryRun) {
-        this.setRepoStatus(repo, "issue-creating", "Proposing new issues");
-      }
-      await proposeAndCreateIssues(repoConfig, repoRow.id, workspace, this.config, this.opts.dryRun);
 
       this.setRepoStatus(repo, "idle");
       activityLog.info("orchestrator", "Repo processing complete", repo);
@@ -261,6 +278,57 @@ export class Orchestrator {
       logger.error({ err, repo }, "Failed to process repo");
       activityLog.error("orchestrator", `Failed: ${err.message}`, repo);
       this.setRepoStatus(repo, "idle", `Last error: ${err.message?.slice(0, 80)}`);
+    }
+  }
+
+  /**
+   * Clear stale data from previous sessions so the dashboard starts fresh.
+   * - Reset all repo_status to idle
+   * - Mark orphaned claude_instances (no endedAt) as failed
+   * - Clear old activity_logs and claude_output
+   */
+  private cleanStaleData() {
+    try {
+      // Reset all repo statuses to idle
+      this.db.update(repoStatus)
+        .set({ phase: "idle", currentTask: null, claudePhase: null, updatedAt: new Date().toISOString() })
+        .run();
+
+      // Mark any orphaned instances (from crashed previous runs) as failed
+      this.db.update(claudeInstances)
+        .set({
+          endedAt: new Date().toISOString(),
+          success: false,
+          error: "Orphaned from previous session",
+        })
+        .where(sql`${claudeInstances.endedAt} IS NULL`)
+        .run();
+
+      // Clear old activity logs (keep last 100)
+      const keepAfter = this.db.select({ id: activityLogs.id })
+        .from(activityLogs)
+        .orderBy(sql`${activityLogs.id} DESC`)
+        .limit(1)
+        .offset(100)
+        .all();
+      if (keepAfter.length > 0) {
+        this.db.delete(activityLogs)
+          .where(sql`${activityLogs.id} <= ${keepAfter[0].id}`)
+          .run();
+      }
+
+      // Clear old claude_output (from completed instances)
+      this.db.delete(claudeOutput)
+        .where(sql`${claudeOutput.instanceId} IN (
+          SELECT ${claudeInstances.id} FROM ${claudeInstances}
+          WHERE ${claudeInstances.endedAt} IS NOT NULL
+        )`)
+        .run();
+
+      logger.info("Cleaned stale data from previous session");
+      activityLog.info("orchestrator", "Session started — stale data cleared");
+    } catch (err: any) {
+      logger.warn({ err: err.message }, "Failed to clean stale data (non-fatal)");
     }
   }
 
@@ -278,4 +346,51 @@ export class Orchestrator {
       }).run();
     } catch { /* ignore */ }
   }
+}
+
+/**
+ * Parse the JSON contribution summary from Claude's output.
+ * Claude outputs mixed text + JSON, so we need to extract the JSON block.
+ */
+function parseContributionSummary(output: string): {
+  contributions: Array<{
+    type: string;
+    branch?: string;
+    title: string;
+    prUrl?: string;
+    issueNumber?: number;
+    description: string;
+  }>;
+  analysisNotes?: string;
+} | null {
+  try {
+    // Try to find JSON block in output
+    const jsonMatch = output.match(/```json\s*([\s\S]*?)```/) ||
+      output.match(/(\{[\s\S]*"contributions"[\s\S]*\})/);
+
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (parsed.contributions && Array.isArray(parsed.contributions)) {
+        return parsed;
+      }
+    }
+
+    // Try direct parse of entire output
+    const parsed = JSON.parse(output);
+    if (parsed.contributions && Array.isArray(parsed.contributions)) {
+      return parsed;
+    }
+
+    // Claude --output-format json wraps in { result: "..." }
+    if (parsed.result) {
+      const inner = typeof parsed.result === "string" ? parsed.result : JSON.stringify(parsed.result);
+      const innerMatch = inner.match(/(\{[\s\S]*"contributions"[\s\S]*\})/);
+      if (innerMatch) {
+        return JSON.parse(innerMatch[1]);
+      }
+    }
+  } catch {
+    // Not parseable — that's fine, Claude may have just done the work without summary
+  }
+  return null;
 }
