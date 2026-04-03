@@ -50,10 +50,10 @@ export function layoutTemplate(title: string, content: string, activePage = "ove
       --bg-secondary: #f9f9f9;
       --bg-tertiary: #f0f0f0;
       --bg-elevated: #ffffff;
-      --sidebar-bg: #0d0d0d;
-      --sidebar-text: #ececf1;
-      --sidebar-hover: #1a1a1a;
-      --sidebar-active: #2a2a2a;
+      --sidebar-bg: #f5f5f5;
+      --sidebar-text: #333;
+      --sidebar-hover: #e8e8e8;
+      --sidebar-active: #ddd;
       --text-primary: #0d0d0d;
       --text-secondary: #6e6e80;
       --text-tertiary: #8e8ea0;
@@ -68,13 +68,13 @@ export function layoutTemplate(title: string, content: string, activePage = "ove
       --card-shadow: 0 1px 3px rgba(0,0,0,0.06);
       --radius: 12px;
       --radius-lg: 16px;
-      --terminal-bg: #1a1a2e;
-      --terminal-text: #e0e0e0;
-      --terminal-dim: #666;
-      --terminal-accent: #10a37f;
-      --terminal-error: #f87171;
-      --terminal-warn: #fbbf24;
-      --terminal-info: #818cf8;
+      --terminal-bg: #f7f7f8;
+      --terminal-text: #1a1a1a;
+      --terminal-dim: #999;
+      --terminal-accent: #0d8c6d;
+      --terminal-error: #dc2626;
+      --terminal-warn: #b45309;
+      --terminal-info: #4f46e5;
     }
 
     body {
@@ -106,7 +106,7 @@ export function layoutTemplate(title: string, content: string, activePage = "ove
       display: flex; align-items: center; gap: 10px;
       padding: 8px 12px; margin-bottom: 24px;
       font-size: 16px; font-weight: 700;
-      color: #fff; text-decoration: none;
+      color: var(--text-primary); text-decoration: none;
     }
     .sidebar-brand svg { flex-shrink: 0; }
 
@@ -120,7 +120,7 @@ export function layoutTemplate(title: string, content: string, activePage = "ove
       transition: background 0.15s;
     }
     .sidebar-nav a:hover { background: var(--sidebar-hover); }
-    .sidebar-nav a.active { background: var(--sidebar-active); color: #fff; }
+    .sidebar-nav a.active { background: var(--sidebar-active); color: var(--text-primary); font-weight: 600; }
     .sidebar-nav a svg { width: 18px; height: 18px; opacity: 0.7; }
 
     .sidebar-section {
@@ -130,7 +130,7 @@ export function layoutTemplate(title: string, content: string, activePage = "ove
     }
 
     .sidebar-footer {
-      padding: 12px; border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 12px; border-top: 1px solid var(--border);
       font-size: 12px; color: var(--text-tertiary);
     }
 
@@ -278,6 +278,19 @@ export function layoutTemplate(title: string, content: string, activePage = "ove
     .theme-toggle svg { width: 16px; height: 16px; }
 
     @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+
+    /* Dark scrollbar for terminals */
+    [data-theme="dark"] .log-container::-webkit-scrollbar,
+    [data-theme="dark"] .pane-output::-webkit-scrollbar { width: 8px; }
+    [data-theme="dark"] .log-container::-webkit-scrollbar-track,
+    [data-theme="dark"] .pane-output::-webkit-scrollbar-track { background: #111; }
+    [data-theme="dark"] .log-container::-webkit-scrollbar-thumb,
+    [data-theme="dark"] .pane-output::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+    [data-theme="dark"] .log-container::-webkit-scrollbar-thumb:hover,
+    [data-theme="dark"] .pane-output::-webkit-scrollbar-thumb:hover { background: #444; }
+    /* Firefox */
+    [data-theme="dark"] .log-container,
+    [data-theme="dark"] .pane-output { scrollbar-color: #333 #111; scrollbar-width: thin; }
 
     /* ===== Responsive ===== */
     @media (max-width: 768px) {

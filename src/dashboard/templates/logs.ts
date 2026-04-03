@@ -16,9 +16,9 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
       </div>
     </div>
 
-    <div class="content" style="padding-bottom:0;display:flex;flex-direction:column;height:calc(100vh - 65px)">
+    <div class="content" style="padding-bottom:16px;overflow-y:auto;height:calc(100vh - 65px)">
       <!-- Instance terminals (persistent, scrollable) -->
-      <div class="card section" id="claude-instances-card" style="flex-shrink:0">
+      <div class="card section" id="claude-instances-card">
         <div class="card-header">
           <h2>Claude Code Instances</h2>
           <span style="color:var(--text-tertiary);font-size:12px" id="instance-count">Loading…</span>
@@ -29,7 +29,7 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
       </div>
 
       <!-- System log (key info only, no claude:live output) -->
-      <div class="card" style="display:flex;flex-direction:column;flex:1;min-height:200px">
+      <div class="card" style="display:flex;flex-direction:column;height:400px">
         <div class="card-header" style="flex-shrink:0">
           <h2>System Log</h2>
           <div style="display:flex;gap:8px;align-items:center">
@@ -37,7 +37,7 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
             <button class="btn btn-sm btn-ghost" id="clear-btn">Clear</button>
           </div>
         </div>
-        <div class="log-container" id="log-view" style="flex:1;max-height:none;border-radius:0 0 var(--radius-lg) var(--radius-lg)">
+        <div class="log-container" id="log-view" style="flex:1;max-height:none">
           <div id="log-inner">${initialHtml}</div>
         </div>
       </div>
@@ -65,7 +65,6 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
       .instance-pane {
         display: flex; flex-direction: column;
         border: 1px solid var(--border);
-        border-radius: 6px;
         overflow: hidden;
         min-height: 0;
         margin: 4px;
