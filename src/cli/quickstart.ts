@@ -72,7 +72,7 @@ export function generateQuickstartConfig(
       (name) => `[[repos]]
 name = "${name}"
 focus = []
-max_prs_per_day = 1
+max_prs_per_day = 2
 enabled = true`
     )
     .join("\n\n");
@@ -85,9 +85,9 @@ workspaces_dir = "./data/workspaces"
 db_path = "./data/contribot.db"
 log_dir = "./data/logs"
 scan_interval_minutes = 120
-max_concurrent_repos = 3
+max_concurrent_repos = 9
 claude_model = "${model}"
-max_budget_per_task_usd = 1.00
+max_budget_per_task_usd = 5
 dashboard_port = 3847
 
 [github]
