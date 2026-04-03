@@ -59,17 +59,17 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
       .split-panes {
         display: grid; gap: 0;
         border-top: 1px solid var(--border);
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr));
       }
-      .split-panes.cols-1 { grid-template-columns: 1fr; }
-      .split-panes.cols-2 { grid-template-columns: 1fr 1fr; }
-      .split-panes.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
 
       .instance-pane {
         display: flex; flex-direction: column;
-        border-right: 1px solid var(--border);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
         min-height: 0;
+        margin: 4px;
       }
-      .instance-pane:last-child { border-right: none; }
 
       .pane-header {
         display: flex; align-items: center; gap: 8px;
@@ -242,9 +242,8 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
           return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
         });
 
-        // Only show up to 4 panes
-        const visible = sorted.slice(0, 4);
-        const cols = visible.length <= 1 ? 'cols-1' : visible.length === 2 ? 'cols-2' : 'cols-3';
+        // Show all instances (no limit)
+        const visible = sorted;
 
         // Check if we need to rebuild (new instances added)
         const currentIds = Array.from(body.querySelectorAll('.instance-pane')).map(el => el.dataset.instanceId);
@@ -252,7 +251,7 @@ export function logsTemplate(recentLogs: LogEntry[], initialLastId = 0): string 
         const needsRebuild = currentIds.length !== newIds.length || currentIds.some((id, i) => id !== newIds[i]);
 
         if (needsRebuild) {
-          let html = '<div class="split-panes ' + cols + '">';
+          let html = '<div class="split-panes">';
           for (const d of visible) {
             const isActive = activeIds.has(d.id);
             const elapsed = formatElapsed(Date.now() - new Date(d.startedAt).getTime());
