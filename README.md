@@ -26,6 +26,10 @@ curl -fsSL https://raw.githubusercontent.com/JiayuuWang/Contribot/main/bootstrap
   --base-url https://your-proxy.com
 ```
 
+```powershell
+irm https://raw.githubusercontent.com/JiayuuWang/Contribot/main/bootstrap.ps1 -OutFile bootstrap.ps1; .\bootstrap.ps1 -ApiKey "sk-ant-xxx" -BaseUrl "https://your-proxy.com"
+```
+
 > The quickstart automatically targets **this week's top 10 GitHub trending repos**. Edit `contribot.toml` afterward to change targets.
 >
 > The script auto-installs Git, GitHub CLI, Node.js, pnpm, and Claude Code if missing. When GitHub login is needed, it will prompt you interactively.
