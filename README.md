@@ -3,6 +3,7 @@
 **[English](README.md)** | **[中文](README.zh-CN.md)** | **[한국어](README.ko.md)**
 
 A system that automatically contributes to GitHub open-source repositories using tons of [Claude Code](https://docs.anthropic.com/en/docs/claude-code) as the reasoning engine. It spawns autonomous Claude Code instances that analyze repos, write code, and submit PRs under **your own GitHub account**.
+![dashboard](https://github.com/JiayuuWang/Contribot/assets/dashboard.png)
 
 ## Quickstart — One Command
 
