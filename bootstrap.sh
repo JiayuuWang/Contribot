@@ -23,10 +23,9 @@ err()   { echo -e "${RED}  ✗ $*${NC}"; }
 fail()  { err "$@"; exit 1; }
 ask()   { echo -e "${YELLOW}  ?${NC} $*"; }
 
-# Read a line from the real terminal even when script is piped (curl | bash)
+# Read a line from the real terminal (works even when script is piped via curl|bash)
 prompt_input() {
-  local prompt_text="$1"
-  echo -ne "${YELLOW}  ?${NC} ${prompt_text} "
+  echo -ne "${YELLOW}  ?${NC} $1 "
   read -r REPLY </dev/tty
   echo "$REPLY"
 }
@@ -61,7 +60,8 @@ echo ""
 # Helper: get latest gh CLI version from GitHub API
 get_gh_latest_version() {
   local ver
-  ver=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest 2>/dev/null \
+  # </dev/null prevents curl from reading stdin (critical when script is piped)
+  ver=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest </dev/null 2>/dev/null \
     | grep '"tag_name"' | head -1 | sed 's/.*"v\([^"]*\)".*/\1/')
   if [[ -z "$ver" ]]; then
     fail "Could not determine latest gh CLI version. Check your internet connection."
@@ -76,22 +76,22 @@ else
   info "Git not found. Installing..."
   if [[ "$PLATFORM" == "mac" ]]; then
     info "Installing Xcode Command Line Tools (includes Git)..."
-    xcode-select --install 2>/dev/null || true
+    xcode-select --install 2>/dev/null </dev/null || true
     echo ""
     ask "Xcode tools installer may have opened a dialog."
     ask "Please complete the installation, then press Enter to continue."
     read -r </dev/tty
   elif [[ "$PLATFORM" == "linux" ]]; then
     if command -v apt-get &>/dev/null; then
-      sudo apt-get update -qq && sudo apt-get install -y -qq git
+      sudo apt-get update -qq </dev/null && sudo apt-get install -y -qq git </dev/null
     elif command -v dnf &>/dev/null; then
-      sudo dnf install -y git
+      sudo dnf install -y git </dev/null
     elif command -v yum &>/dev/null; then
-      sudo yum install -y git
+      sudo yum install -y git </dev/null
     elif command -v pacman &>/dev/null; then
-      sudo pacman -S --noconfirm git
+      sudo pacman -S --noconfirm git </dev/null
     elif command -v apk &>/dev/null; then
-      sudo apk add git
+      sudo apk add git </dev/null
     else
       fail "Could not detect package manager. Install Git manually: https://git-scm.com"
     fi
@@ -135,9 +135,8 @@ else
       GH_ARCHIVE="gh_${GH_VERSION}_macOS_amd64.zip"
     fi
     info "Downloading gh v${GH_VERSION}..."
-    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" -o /tmp/contribot_gh.zip
-    unzip -qo /tmp/contribot_gh.zip -d /tmp/contribot_gh_install
-    # The zip contains a single directory named gh_VERSION_macOS_ARCH
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" -o /tmp/contribot_gh.zip </dev/null
+    unzip -qo /tmp/contribot_gh.zip -d /tmp/contribot_gh_install </dev/null
     sudo mkdir -p /usr/local/bin
     sudo cp /tmp/contribot_gh_install/gh_*/bin/gh /usr/local/bin/gh
     sudo chmod +x /usr/local/bin/gh
@@ -145,23 +144,22 @@ else
 
   elif [[ "$PLATFORM" == "linux" ]]; then
     if command -v apt-get &>/dev/null; then
-      (type -p wget >/dev/null || sudo apt-get install -y wget) \
+      (type -p wget >/dev/null || sudo apt-get install -y wget </dev/null) \
         && sudo mkdir -p -m 755 /etc/apt/keyrings \
         && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg \
            | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
         && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
         && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
            | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-        && sudo apt-get update -qq \
-        && sudo apt-get install -y -qq gh
+        && sudo apt-get update -qq </dev/null \
+        && sudo apt-get install -y -qq gh </dev/null
     elif command -v dnf &>/dev/null; then
-      sudo dnf install -y 'dnf-command(config-manager)' \
-        && sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo \
-        && sudo dnf install -y gh
+      sudo dnf install -y 'dnf-command(config-manager)' </dev/null \
+        && sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo </dev/null \
+        && sudo dnf install -y gh </dev/null
     elif command -v pacman &>/dev/null; then
-      sudo pacman -S --noconfirm github-cli
+      sudo pacman -S --noconfirm github-cli </dev/null
     else
-      # Direct binary download (works on any Linux with curl)
       GH_VERSION=$(get_gh_latest_version)
       case "$ARCH" in
         x86_64|amd64)   GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64.tar.gz" ;;
@@ -169,9 +167,9 @@ else
         *)              fail "Unsupported architecture: $ARCH. Install gh manually: https://cli.github.com" ;;
       esac
       info "Downloading gh v${GH_VERSION}..."
-      curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" -o /tmp/contribot_gh.tar.gz
+      curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" -o /tmp/contribot_gh.tar.gz </dev/null
       mkdir -p /tmp/contribot_gh_extract
-      tar -xzf /tmp/contribot_gh.tar.gz -C /tmp/contribot_gh_extract
+      tar -xzf /tmp/contribot_gh.tar.gz -C /tmp/contribot_gh_extract </dev/null
       sudo mkdir -p /usr/local/bin
       sudo cp /tmp/contribot_gh_extract/gh_*/bin/gh /usr/local/bin/gh
       sudo chmod +x /usr/local/bin/gh
@@ -185,7 +183,7 @@ fi
 
 # GitHub CLI authentication
 if gh auth status &>/dev/null 2>&1; then
-  GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "authenticated")
+  GH_USER=$(gh api user --jq '.login' </dev/null 2>/dev/null || echo "authenticated")
   ok "GitHub authenticated as: $GH_USER"
 else
   echo ""
@@ -193,7 +191,6 @@ else
   ask "You need to log in so Contribot can fork repos and create PRs under your account."
   ask "This will start an interactive login. Please follow the prompts."
   echo ""
-  # /dev/tty: stdin from terminal so interactive login works even when piped (curl | bash)
   gh auth login </dev/tty
   echo ""
   if gh auth status &>/dev/null 2>&1; then
@@ -209,13 +206,14 @@ if command -v node &>/dev/null; then
 else
   info "Node.js not found. Installing via fnm..."
   if ! command -v fnm &>/dev/null; then
-    # fnm installer: also needs /dev/tty in pipe context
-    curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell
+    # --skip-shell: don't modify .bashrc/.zshrc during piped execution
+    # </dev/null: prevent fnm installer from reading stdin pipe
+    curl -fsSL https://fnm.vercel.app/install </dev/null | bash -s -- --skip-shell </dev/null
     export PATH="$HOME/.local/share/fnm:$HOME/.fnm:$PATH"
     eval "$(fnm env --shell bash 2>/dev/null || true)"
   fi
-  fnm install --lts
-  fnm use --lts
+  fnm install --lts </dev/null
+  fnm use --lts </dev/null
   command -v node &>/dev/null || fail "Node.js installation failed. Install manually: https://nodejs.org"
   ok "Node.js installed: $(node -v)"
 fi
@@ -225,16 +223,16 @@ if command -v pnpm &>/dev/null; then
   ok "pnpm $(pnpm -v)"
 else
   info "Installing pnpm..."
-  npm install -g pnpm
+  npm install -g pnpm </dev/null
   ok "pnpm installed: $(pnpm -v)"
 fi
 
 # ========== 5. Claude Code CLI ==========
 if command -v claude &>/dev/null; then
-  ok "Claude Code $(claude --version 2>/dev/null | head -1)"
+  ok "Claude Code $(claude --version </dev/null 2>/dev/null | head -1)"
 else
   info "Installing Claude Code CLI..."
-  npm install -g @anthropic-ai/claude-code
+  npm install -g @anthropic-ai/claude-code </dev/null
   ok "Claude Code installed"
 fi
 
@@ -254,19 +252,19 @@ CONTRIBOT_DIR="Contribot"
 if [[ -d "$CONTRIBOT_DIR/.git" ]]; then
   ok "Contribot repo found"
   cd "$CONTRIBOT_DIR"
-  git pull --ff-only 2>/dev/null || true
+  git pull --ff-only </dev/null 2>/dev/null || true
 elif [[ -f "package.json" ]] && grep -q '"contribot"' package.json 2>/dev/null; then
   ok "Already in Contribot directory"
 else
   info "Cloning Contribot..."
-  git clone https://github.com/JiayuuWang/Contribot.git "$CONTRIBOT_DIR"
+  git clone https://github.com/JiayuuWang/Contribot.git "$CONTRIBOT_DIR" </dev/null
   cd "$CONTRIBOT_DIR"
   ok "Cloned"
 fi
 
 # ========== 7. Install dependencies ==========
 info "Installing dependencies..."
-pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+pnpm install --frozen-lockfile </dev/null 2>/dev/null || pnpm install </dev/null
 ok "Dependencies installed"
 
 # ========== 8. Generate config ==========
@@ -278,11 +276,11 @@ else
   [[ -n "$API_KEY" ]] && QUICKSTART_ARGS="$QUICKSTART_ARGS --api-key $API_KEY"
   [[ -n "$BASE_URL" ]] && QUICKSTART_ARGS="$QUICKSTART_ARGS --base-url $BASE_URL"
   [[ -n "$MODEL" ]] && QUICKSTART_ARGS="$QUICKSTART_ARGS --model $MODEL"
-  pnpm dev quickstart $QUICKSTART_ARGS
+  pnpm dev quickstart $QUICKSTART_ARGS </dev/null
 fi
 
 # ========== 9. Start ==========
 echo ""
 info "Setup complete. Starting Contribot..."
 echo ""
-pnpm dev run --once --dashboard
+pnpm dev run --once --dashboard </dev/null
