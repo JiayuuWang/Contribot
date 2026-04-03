@@ -23,6 +23,7 @@ fail()  { echo -e "${RED}  ✗ $*${NC}"; exit 1; }
 ask()   { echo -e "${YELLOW}  ?${NC} $*"; }
 
 OS="$(uname -s)"
+ARCH="$(uname -m)"
 case "$OS" in
   Linux*)  PLATFORM="linux" ;;
   Darwin*) PLATFORM="mac" ;;
@@ -54,17 +55,13 @@ if command -v git &>/dev/null; then
 else
   info "Git not found. Installing..."
   if [[ "$PLATFORM" == "mac" ]]; then
-    # macOS: xcode-select includes git
-    if command -v brew &>/dev/null; then
-      brew install git
-    else
-      info "Installing Xcode Command Line Tools (includes Git)..."
-      xcode-select --install 2>/dev/null || true
-      echo ""
-      ask "Xcode tools installer may have opened a dialog."
-      ask "Please complete the installation, then press Enter to continue."
-      read -r
-    fi
+    # macOS: xcode-select includes git, no Homebrew needed
+    info "Installing Xcode Command Line Tools (includes Git)..."
+    xcode-select --install 2>/dev/null || true
+    echo ""
+    ask "Xcode tools installer may have opened a dialog." </dev/tty
+    ask "Please complete the installation, then press Enter to continue." </dev/tty
+    read -r </dev/tty
   elif [[ "$PLATFORM" == "linux" ]]; then
     if command -v apt-get &>/dev/null; then
       sudo apt-get update -qq && sudo apt-get install -y -qq git
@@ -100,12 +97,12 @@ if [[ -z "$GIT_USER" || -z "$GIT_EMAIL" ]]; then
   echo ""
   if [[ -z "$GIT_USER" ]]; then
     echo -ne "${YELLOW}  ?${NC} Enter your name for git commits: "
-    read -r GIT_USER
+    read -r GIT_USER </dev/tty
     git config --global user.name "$GIT_USER"
   fi
   if [[ -z "$GIT_EMAIL" ]]; then
     echo -ne "${YELLOW}  ?${NC} Enter your email for git commits: "
-    read -r GIT_EMAIL
+    read -r GIT_EMAIL </dev/tty
     git config --global user.email "$GIT_EMAIL"
   fi
   ok "Git identity set: $GIT_USER <$GIT_EMAIL>"
@@ -117,18 +114,21 @@ if command -v gh &>/dev/null; then
 else
   info "GitHub CLI not found. Installing..."
   if [[ "$PLATFORM" == "mac" ]]; then
-    if command -v brew &>/dev/null; then
-      brew install gh
+    # Download gh binary directly (no Homebrew)
+    GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | grep '"tag_name"' | head -1 | sed 's/.*"v\(.*\)".*/\1/')
+    if [[ "$ARCH" == "arm64" ]]; then
+      GH_ARCHIVE="gh_${GH_VERSION}_macOS_arm64.zip"
     else
-      # Install Homebrew first, then gh
-      info "Installing Homebrew (needed for GitHub CLI on macOS)..."
-      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-      eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"
-      brew install gh
+      GH_ARCHIVE="gh_${GH_VERSION}_macOS_amd64.zip"
     fi
+    info "Downloading gh v${GH_VERSION}..."
+    curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" -o /tmp/gh.zip
+    unzip -qo /tmp/gh.zip -d /tmp/gh_install
+    sudo cp /tmp/gh_install/*/bin/gh /usr/local/bin/gh
+    sudo chmod +x /usr/local/bin/gh
+    rm -rf /tmp/gh.zip /tmp/gh_install
   elif [[ "$PLATFORM" == "linux" ]]; then
     if command -v apt-get &>/dev/null; then
-      # Debian/Ubuntu
       (type -p wget >/dev/null || sudo apt-get install -y wget) \
         && sudo mkdir -p -m 755 /etc/apt/keyrings \
         && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
@@ -143,7 +143,21 @@ else
     elif command -v pacman &>/dev/null; then
       sudo pacman -S --noconfirm github-cli
     else
-      fail "Could not detect package manager. Install GitHub CLI manually: https://cli.github.com"
+      # Direct binary download as fallback
+      GH_VERSION=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | grep '"tag_name"' | head -1 | sed 's/.*"v\(.*\)".*/\1/')
+      if [[ "$ARCH" == "x86_64" || "$ARCH" == "amd64" ]]; then
+        GH_ARCHIVE="gh_${GH_VERSION}_linux_amd64.tar.gz"
+      elif [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
+        GH_ARCHIVE="gh_${GH_VERSION}_linux_arm64.tar.gz"
+      else
+        fail "Unsupported architecture: $ARCH. Install gh manually: https://cli.github.com"
+      fi
+      info "Downloading gh v${GH_VERSION}..."
+      curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/${GH_ARCHIVE}" -o /tmp/gh.tar.gz
+      tar -xzf /tmp/gh.tar.gz -C /tmp
+      sudo cp /tmp/gh_*/bin/gh /usr/local/bin/gh
+      sudo chmod +x /usr/local/bin/gh
+      rm -rf /tmp/gh.tar.gz /tmp/gh_*
     fi
   fi
 
@@ -155,6 +169,7 @@ else
 fi
 
 # GitHub CLI authentication
+# Use /dev/tty for interactive input since stdin may be a pipe (curl | bash)
 if gh auth status &>/dev/null 2>&1; then
   GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
   ok "GitHub authenticated as: $GH_USER"
@@ -162,14 +177,16 @@ else
   echo ""
   warn "GitHub CLI is not authenticated."
   ask "You need to log in so Contribot can fork repos and create PRs under your account."
-  ask "This will open an interactive login flow."
+  ask "This will start an interactive login. Please follow the prompts."
   echo ""
-  gh auth login
+  # Redirect stdin from /dev/tty so gh auth login can interact with the user
+  # even when this script is run via curl | bash
+  gh auth login </dev/tty
   echo ""
   if gh auth status &>/dev/null 2>&1; then
     ok "GitHub authentication successful"
   else
-    fail "GitHub authentication failed. Run 'gh auth login' manually."
+    fail "GitHub authentication failed. Run 'gh auth login' manually after the script finishes."
   fi
 fi
 

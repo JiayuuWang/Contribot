@@ -23,20 +23,28 @@ export async function runSubprocess(
   const { cwd, timeout = 120_000, env } = opts;
 
   return new Promise((resolve, reject) => {
-    // On Windows, we need shell for resolving .cmd/.bat wrappers (gh, claude, etc.)
-    // Combine command + args into a single string to avoid the DEP0190 warning
-    const fullCommand = isWindows
-      ? `${command} ${args.map(escapeArgWin).join(" ")}`
-      : command;
+    let proc;
 
-    const spawnArgs = isWindows ? [] : args;
-
-    const proc = spawn(fullCommand, spawnArgs, {
-      cwd,
-      env: env ? { ...process.env, ...env } : process.env,
-      shell: true,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    if (isWindows) {
+      // Windows: must use shell to resolve .cmd/.bat wrappers (gh, git, claude).
+      // Build a single command string to avoid DEP0190 with shell+args.
+      const fullCommand = `${command} ${args.map(escapeArgWin).join(" ")}`;
+      proc = spawn(fullCommand, [], {
+        cwd,
+        env: env ? { ...process.env, ...env } : process.env,
+        shell: true,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } else {
+      // macOS/Linux: spawn directly without shell.
+      // git/gh/claude are real binaries, no shell needed for PATH resolution.
+      // This avoids DEP0190 and shell-interpretation of special chars like > in args.
+      proc = spawn(command, args, {
+        cwd,
+        env: env ? { ...process.env, ...env } : process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    }
 
     let stdout = "";
     let stderr = "";
