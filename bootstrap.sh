@@ -6,28 +6,28 @@
 #   curl -fsSL https://raw.githubusercontent.com/JiayuuWang/Contribot/main/bootstrap.sh | bash -s -- --api-key YOUR_KEY
 #   curl -fsSL ... | bash -s -- --api-key YOUR_KEY --base-url https://your-proxy.com
 #
-# What it does:
-#   1. Installs Node.js (if missing) via fnm
-#   2. Installs pnpm (if missing)
-#   3. Installs Claude Code CLI (if missing)
-#   4. Clones Contribot (if not already cloned)
-#   5. Installs dependencies
-#   6. Generates contribot.toml with this week's GitHub trending repos
-#   7. Starts contributing
-#
 set -euo pipefail
 
-# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m'
 
-info()  { echo -e "${CYAN}[contribot]${NC} $*"; }
+info()  { echo -e "${CYAN}${BOLD}[contribot]${NC} $*"; }
 ok()    { echo -e "${GREEN}  ✓${NC} $*"; }
-warn()  { echo -e "${YELLOW}  ⚠${NC} $*"; }
-fail()  { echo -e "${RED}  ✗${NC} $*"; exit 1; }
+warn()  { echo -e "${YELLOW}  !${NC} $*"; }
+fail()  { echo -e "${RED}  ✗ $*${NC}"; exit 1; }
+ask()   { echo -e "${YELLOW}  ?${NC} $*"; }
+
+OS="$(uname -s)"
+case "$OS" in
+  Linux*)  PLATFORM="linux" ;;
+  Darwin*) PLATFORM="mac" ;;
+  *)       PLATFORM="unknown" ;;
+esac
 
 # ---------- Parse args ----------
 API_KEY=""
@@ -43,15 +43,142 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ---------- 1. Node.js ----------
-if command -v node &>/dev/null; then
-  NODE_VER=$(node -v)
-  ok "Node.js already installed: $NODE_VER"
+echo ""
+echo -e "${BOLD}  Contribot — Autonomous Open-Source Contributor${NC}"
+echo -e "${DIM}  Setting up your environment...${NC}"
+echo ""
+
+# ========== 1. Git ==========
+if command -v git &>/dev/null; then
+  ok "Git $(git --version | head -1)"
 else
-  info "Installing Node.js via fnm..."
-  if command -v fnm &>/dev/null; then
-    ok "fnm already installed"
+  info "Git not found. Installing..."
+  if [[ "$PLATFORM" == "mac" ]]; then
+    # macOS: xcode-select includes git
+    if command -v brew &>/dev/null; then
+      brew install git
+    else
+      info "Installing Xcode Command Line Tools (includes Git)..."
+      xcode-select --install 2>/dev/null || true
+      echo ""
+      ask "Xcode tools installer may have opened a dialog."
+      ask "Please complete the installation, then press Enter to continue."
+      read -r
+    fi
+  elif [[ "$PLATFORM" == "linux" ]]; then
+    if command -v apt-get &>/dev/null; then
+      sudo apt-get update -qq && sudo apt-get install -y -qq git
+    elif command -v dnf &>/dev/null; then
+      sudo dnf install -y git
+    elif command -v yum &>/dev/null; then
+      sudo yum install -y git
+    elif command -v pacman &>/dev/null; then
+      sudo pacman -S --noconfirm git
+    elif command -v apk &>/dev/null; then
+      sudo apk add git
+    else
+      fail "Could not detect package manager. Install Git manually: https://git-scm.com"
+    fi
   else
+    fail "Unsupported OS. Install Git manually: https://git-scm.com"
+  fi
+
+  if command -v git &>/dev/null; then
+    ok "Git installed: $(git --version | head -1)"
+  else
+    fail "Git installation failed. Install manually: https://git-scm.com"
+  fi
+fi
+
+# Check git user config
+GIT_USER=$(git config --global user.name 2>/dev/null || true)
+GIT_EMAIL=$(git config --global user.email 2>/dev/null || true)
+if [[ -z "$GIT_USER" || -z "$GIT_EMAIL" ]]; then
+  echo ""
+  warn "Git user identity not configured."
+  ask "This is needed so your commits have the correct author info."
+  echo ""
+  if [[ -z "$GIT_USER" ]]; then
+    echo -ne "${YELLOW}  ?${NC} Enter your name for git commits: "
+    read -r GIT_USER
+    git config --global user.name "$GIT_USER"
+  fi
+  if [[ -z "$GIT_EMAIL" ]]; then
+    echo -ne "${YELLOW}  ?${NC} Enter your email for git commits: "
+    read -r GIT_EMAIL
+    git config --global user.email "$GIT_EMAIL"
+  fi
+  ok "Git identity set: $GIT_USER <$GIT_EMAIL>"
+fi
+
+# ========== 2. GitHub CLI ==========
+if command -v gh &>/dev/null; then
+  ok "GitHub CLI $(gh --version | head -1)"
+else
+  info "GitHub CLI not found. Installing..."
+  if [[ "$PLATFORM" == "mac" ]]; then
+    if command -v brew &>/dev/null; then
+      brew install gh
+    else
+      # Install Homebrew first, then gh
+      info "Installing Homebrew (needed for GitHub CLI on macOS)..."
+      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv 2>/dev/null || true)"
+      brew install gh
+    fi
+  elif [[ "$PLATFORM" == "linux" ]]; then
+    if command -v apt-get &>/dev/null; then
+      # Debian/Ubuntu
+      (type -p wget >/dev/null || sudo apt-get install -y wget) \
+        && sudo mkdir -p -m 755 /etc/apt/keyrings \
+        && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+        && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+        && sudo apt-get update -qq \
+        && sudo apt-get install -y -qq gh
+    elif command -v dnf &>/dev/null; then
+      sudo dnf install -y 'dnf-command(config-manager)' && sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo && sudo dnf install -y gh
+    elif command -v yum &>/dev/null; then
+      sudo yum-config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo && sudo yum install -y gh
+    elif command -v pacman &>/dev/null; then
+      sudo pacman -S --noconfirm github-cli
+    else
+      fail "Could not detect package manager. Install GitHub CLI manually: https://cli.github.com"
+    fi
+  fi
+
+  if command -v gh &>/dev/null; then
+    ok "GitHub CLI installed: $(gh --version | head -1)"
+  else
+    fail "GitHub CLI installation failed. Install manually: https://cli.github.com"
+  fi
+fi
+
+# GitHub CLI authentication
+if gh auth status &>/dev/null 2>&1; then
+  GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
+  ok "GitHub authenticated as: $GH_USER"
+else
+  echo ""
+  warn "GitHub CLI is not authenticated."
+  ask "You need to log in so Contribot can fork repos and create PRs under your account."
+  ask "This will open an interactive login flow."
+  echo ""
+  gh auth login
+  echo ""
+  if gh auth status &>/dev/null 2>&1; then
+    ok "GitHub authentication successful"
+  else
+    fail "GitHub authentication failed. Run 'gh auth login' manually."
+  fi
+fi
+
+# ========== 3. Node.js ==========
+if command -v node &>/dev/null; then
+  ok "Node.js $(node -v)"
+else
+  info "Node.js not found. Installing via fnm..."
+  if ! command -v fnm &>/dev/null; then
     curl -fsSL https://fnm.vercel.app/install | bash
     export PATH="$HOME/.local/share/fnm:$HOME/.fnm:$PATH"
     eval "$(fnm env --shell bash 2>/dev/null || true)"
@@ -61,65 +188,43 @@ else
   ok "Node.js installed: $(node -v)"
 fi
 
-# ---------- 2. pnpm ----------
+# ========== 4. pnpm ==========
 if command -v pnpm &>/dev/null; then
-  ok "pnpm already installed: $(pnpm -v)"
+  ok "pnpm $(pnpm -v)"
 else
   info "Installing pnpm..."
   npm install -g pnpm
   ok "pnpm installed: $(pnpm -v)"
 fi
 
-# ---------- 3. Git ----------
-if command -v git &>/dev/null; then
-  ok "Git already installed"
-else
-  fail "Git is required but not found. Install it from https://git-scm.com"
-fi
-
-# ---------- 4. GitHub CLI ----------
-if command -v gh &>/dev/null; then
-  ok "GitHub CLI already installed"
-else
-  fail "GitHub CLI (gh) is required but not found. Install it from https://cli.github.com"
-fi
-
-# Check gh auth
-if gh auth status &>/dev/null; then
-  ok "GitHub CLI authenticated"
-else
-  warn "GitHub CLI not authenticated. Running 'gh auth login'..."
-  gh auth login
-fi
-
-# ---------- 5. Claude Code CLI ----------
+# ========== 5. Claude Code CLI ==========
 if command -v claude &>/dev/null; then
-  ok "Claude Code already installed: $(claude --version 2>/dev/null | head -1)"
+  ok "Claude Code $(claude --version 2>/dev/null | head -1)"
 else
   info "Installing Claude Code CLI..."
   npm install -g @anthropic-ai/claude-code
   ok "Claude Code installed"
 fi
 
-# Set API key if provided
+# Set API key / base URL
 if [[ -n "$API_KEY" ]]; then
   export ANTHROPIC_API_KEY="$API_KEY"
-  ok "API key set"
+  ok "API key configured"
 fi
 if [[ -n "$BASE_URL" ]]; then
   export ANTHROPIC_BASE_URL="$BASE_URL"
-  ok "Base URL set: $BASE_URL"
+  ok "API base URL: $BASE_URL"
 fi
 
-# ---------- 6. Clone Contribot ----------
+# ========== 6. Clone Contribot ==========
 CONTRIBOT_DIR="Contribot"
 
 if [[ -d "$CONTRIBOT_DIR/.git" ]]; then
-  ok "Contribot already cloned"
+  ok "Contribot repo found"
   cd "$CONTRIBOT_DIR"
   git pull --ff-only 2>/dev/null || true
 elif [[ -f "package.json" ]] && grep -q '"contribot"' package.json 2>/dev/null; then
-  ok "Already inside Contribot directory"
+  ok "Already in Contribot directory"
 else
   info "Cloning Contribot..."
   git clone https://github.com/JiayuuWang/Contribot.git "$CONTRIBOT_DIR"
@@ -127,12 +232,12 @@ else
   ok "Cloned"
 fi
 
-# ---------- 7. Install dependencies ----------
+# ========== 7. Install dependencies ==========
 info "Installing dependencies..."
 pnpm install --frozen-lockfile 2>/dev/null || pnpm install
 ok "Dependencies installed"
 
-# ---------- 8. Generate config with trending repos ----------
+# ========== 8. Generate config ==========
 if [[ -f "contribot.toml" ]]; then
   warn "contribot.toml already exists, skipping generation"
 else
@@ -144,8 +249,8 @@ else
   pnpm dev quickstart $QUICKSTART_ARGS
 fi
 
-# ---------- 9. Start ----------
+# ========== 9. Start ==========
 echo ""
-info "Starting Contribot..."
+info "Setup complete. Starting Contribot..."
 echo ""
 pnpm dev run --once --dashboard

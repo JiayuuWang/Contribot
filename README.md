@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/JiayuuWang/Contribot/main/bootstrap
 
 > The quickstart automatically targets **this week's top 10 GitHub trending repos**. Edit `contribot.toml` afterward to change targets.
 >
-> **Prerequisites that must be installed manually first:** [Git](https://git-scm.com) and [GitHub CLI](https://cli.github.com) (`gh auth login`). The bootstrap script installs everything else.
+> The script auto-installs Git, GitHub CLI, Node.js, pnpm, and Claude Code if missing. When GitHub login is needed, it will prompt you interactively.
 
 **Already cloned?** Run quickstart locally:
 ```bash
