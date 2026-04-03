@@ -231,7 +231,7 @@ export class Orchestrator {
         model: this.config.general.claude_model,
         // Give Claude full tool access to handle the entire workflow
         allowedTools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
-        timeout: 900_000, // 15 minutes — repo work takes time
+        timeout: 2700_000, // 45 minutes — repo work takes time
         repo,
         phase: "contribute",
       });
